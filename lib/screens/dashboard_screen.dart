@@ -1,4 +1,5 @@
 import 'package:ai/screens/admin_screen.dart';
+import 'package:ai/screens/exercise_selection_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'profile_screen.dart';
@@ -6,6 +7,7 @@ import '../models/meal_model.dart';
 import '../models/workout_model.dart';
 import '../repositories/plan_repository.dart';
 import '../repositories/profile_repository.dart';
+import '../repositories/auth_repository.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String userName;
@@ -67,6 +69,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // startedWeight = الوزن اللي جه من الأونبوردينج (widget.weight) وبيتحفظ لو اتعدل البروفايل
   double startedWeight = 70.0;
   String currentFitnessGoal = 'lose weight';
+  String currentGender = 'male';
+  String currentActivityLevel = 'moderate';
+  String currentExperienceLevel = 'beginner';
+  String currentEquipment = 'at home';
 
   double calculatedBMI = 0.0;
   double calculatedBMR = 0.0;
@@ -80,6 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // API State Variables
   // ==========================================
   final PlanRepository _planRepo = PlanRepository();
+  final AuthRepository _authRepo = AuthRepository();
 
   // وجبات
   List<Meal> todayMealsList = [];
@@ -95,10 +102,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int completedExercisesCount = 0;
 
   // Generate / Cancel
-  int _selectedPlanDays = 3;
   int _currentPlanDays = 30;
   bool _isGeneratingPlan = false;
   bool _isCancelling = false;
+  int? _profileId;
+
+  // Cache & Plan Creation State
+  DateTime? _planCreatedAt;
+  CurrentMealsResponse? _cachedMealsResponse;
+  CurrentWorkoutsResponse? _cachedWorkoutsResponse;
+
+  int get _activeDay {
+    if (_planCreatedAt == null) return 1;
+    final diff = DateTime.now().toUtc().difference(_planCreatedAt!.toUtc());
+    final computed = diff.inDays + 1;
+    return computed < 1 ? 1 : computed;
+  }
+
+  double get displayTargetCalories {
+    if (todayMealsList.isNotEmpty) {
+      final mealsSum = todayMealsList.fold(0.0, (sum, m) => sum + m.calories);
+      if (mealsSum > 0) return mealsSum;
+    }
+    if (_cachedMealsResponse != null &&
+        _cachedMealsResponse!.dailyCalories > 0) {
+      return _cachedMealsResponse!.dailyCalories;
+    }
+    return targetCalories;
+  }
 
   // ==========================================
   // Init
@@ -107,12 +138,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _currentPlanDays = _parsePositive(widget.durationDays, 30);
-    _selectedPlanDays = _currentPlanDays;
     _parseAndCalculateStats();
     // جيب أحدث بيانات البروفايل من الـ API عشان نتأكد أن الوزن محدث
     _refreshProfileDataOnDashboardLoad();
-    _fetchTodayMeals();
-    _fetchTodayWorkouts();
+    _loadDashboardData();
   }
 
   void _parseAndCalculateStats() {
@@ -122,6 +151,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     currentAge = int.tryParse(widget.age ?? '25') ?? 25;
     targetWeightVal = double.tryParse(widget.targetWeight ?? '70') ?? 70.0;
     currentFitnessGoal = widget.fitnessGoal ?? 'lose weight';
+    currentGender = widget.gender ?? 'Male';
+    currentActivityLevel = widget.activityLevel ?? 'moderate';
+    currentExperienceLevel = widget.experienceLevel ?? 'beginner';
+    currentEquipment = widget.equipment ?? 'at home';
 
     _recalculate();
   }
@@ -131,7 +164,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     double heightInMeters = currentHeight / 100;
     calculatedBMI = currentWeight / (heightInMeters * heightInMeters);
 
-    bool isMale = (widget.gender?.toLowerCase() ?? 'male') == 'male';
+    bool isMale = currentGender.toLowerCase() == 'male';
     calculatedBMR = isMale
         ? (10 * currentWeight) + (6.25 * currentHeight) - (5 * currentAge) + 5
         : (10 * currentWeight) +
@@ -139,7 +172,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             (5 * currentAge) -
             161;
 
-    String actLevel = widget.activityLevel?.toLowerCase() ?? 'moderate';
+    String actLevel = currentActivityLevel.toLowerCase();
     if (actLevel.contains('sedentary'))
       activityMultiplier = 1.2;
     else if (actLevel.contains('light'))
@@ -150,7 +183,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       activityMultiplier = 1.55;
 
     double tdee = calculatedBMR * activityMultiplier;
-    String goal = widget.fitnessGoal?.toLowerCase() ?? 'lose weight';
+    String goal = currentFitnessGoal.toLowerCase();
     if (goal.contains('lose'))
       targetCalories = tdee - 500;
     else if (goal.contains('gain'))
@@ -166,82 +199,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ==========================================
   // API Calls
   // ==========================================
-  Future<void> _fetchTodayMeals() async {
-    setState(() => isLoadingMeals = true);
-    final response = await _planRepo.fetchTodayMeals();
-    if (mounted) {
-      setState(() {
-        if (response != null) {
-          todayMealsList = response.meals;
-          consumedCalories = todayMealsList
-              .where((m) => m.isDone)
-              .fold(0.0, (sum, m) => sum + m.calories);
-        }
-        isLoadingMeals = false;
-      });
-    }
-  }
+  Future<void> _loadDashboardData() async {
+    if (!mounted) return;
+    setState(() {
+      isLoadingMeals = true;
+      isLoadingWorkouts = true;
+    });
 
-  Future<void> _fetchMealsByDay(int day) async {
-    setState(() => isLoadingMealsByDay = true);
-    final response = await _planRepo.fetchCurrentMeals();
-    if (mounted) {
-      setState(() {
-        if (response != null) {
-          if (response.durationDays > 0) {
-            _currentPlanDays = response.durationDays;
-            currentDaySlider = currentDaySlider
-                .clamp(1.0, _currentPlanDays.toDouble())
-                .toDouble();
-            currentWorkoutDaySlider = currentWorkoutDaySlider
-                .clamp(1.0, _currentPlanDays.toDouble())
-                .toDouble();
+    try {
+      final results = await Future.wait([
+        _planRepo.fetchCurrentMeals(),
+        _planRepo.fetchTodayWorkouts(),
+      ]);
+
+      final mealsResponse = results[0] as CurrentMealsResponse?;
+      final workoutsResponse = results[1] as CurrentWorkoutsResponse?;
+
+      if (mounted) {
+        setState(() {
+          _cachedMealsResponse = mealsResponse;
+          _cachedWorkoutsResponse = workoutsResponse;
+
+          if (mealsResponse != null) {
+            _planCreatedAt = mealsResponse.createdAt;
+            if (mealsResponse.durationDays > 0) {
+              _currentPlanDays = mealsResponse.durationDays;
+            }
+          }
+          if (workoutsResponse != null && _planCreatedAt == null) {
+            _planCreatedAt = workoutsResponse.createdAt;
           }
 
-          final selectedDayMeals = response.mealDays
-              .where((mealDay) => mealDay.day == day)
-              .expand((mealDay) => mealDay.meals)
-              .toList();
+          final displayDays =
+              mealsResponse != null && mealsResponse.durationDays > 0
+                  ? mealsResponse.durationDays
+                  : 7;
+          final initialActiveDay = _activeDay;
+          currentDaySlider = initialActiveDay.clamp(1, displayDays).toDouble();
+          currentWorkoutDaySlider =
+              initialActiveDay.clamp(1, displayDays).toDouble();
 
-          todayMealsList = selectedDayMeals;
-          consumedCalories = todayMealsList
-              .where((m) => m.isDone)
-              .fold(0.0, (sum, m) => sum + m.calories);
-        }
-        isLoadingMealsByDay = false;
-      });
-    }
-  }
-
-  Future<void> _fetchTodayWorkouts() async {
-    setState(() => isLoadingWorkouts = true);
-    final response = await _planRepo.fetchTodayWorkouts();
-    if (mounted) {
-      setState(() {
-        if (response != null && response.workouts.isNotEmpty) {
-          if (response.durationDays > 0) {
-            _currentPlanDays = response.durationDays;
-            currentDaySlider = currentDaySlider
-                .clamp(1.0, _currentPlanDays.toDouble())
-                .toDouble();
-            currentWorkoutDaySlider = currentWorkoutDaySlider
-                .clamp(1.0, _currentPlanDays.toDouble())
-                .toDouble();
+          // Populate meals for selected day
+          if (mealsResponse != null) {
+            final selectedDayMeals = mealsResponse.mealDays
+                .where((mealDay) => mealDay.day == currentDaySlider.toInt())
+                .expand((mealDay) => mealDay.meals)
+                .toList();
+            todayMealsList = selectedDayMeals;
+            consumedCalories = todayMealsList
+                .where((m) => m.isDone)
+                .fold(0.0, (sum, m) => sum + m.calories);
+          } else {
+            todayMealsList = [];
+            consumedCalories = 0.0;
           }
 
-          todayWorkoutsData = response.workouts.firstWhere(
-            (workoutDay) => workoutDay.day == currentWorkoutDaySlider.toInt(),
-            orElse: () => response.workouts.first,
-          );
-          completedExercisesCount = todayWorkoutsData!.exercises
-              .where((e) => e.status == 'DONE')
-              .length;
-        } else {
-          todayWorkoutsData = null;
-          completedExercisesCount = 0;
-        }
-        isLoadingWorkouts = false;
-      });
+          // Populate workouts for selected day
+          if (workoutsResponse != null &&
+              workoutsResponse.workouts.isNotEmpty) {
+            todayWorkoutsData = workoutsResponse.workouts.firstWhere(
+              (workoutDay) => workoutDay.day == currentWorkoutDaySlider.toInt(),
+              orElse: () => workoutsResponse.workouts.first,
+            );
+            completedExercisesCount = todayWorkoutsData!.exercises
+                .where((e) => e.status == 'DONE')
+                .length;
+          } else {
+            todayWorkoutsData = null;
+            completedExercisesCount = 0;
+          }
+
+          isLoadingMeals = false;
+          isLoadingWorkouts = false;
+        });
+      }
+    } catch (e) {
+      print("Error loading dashboard data: $e");
+      if (mounted) {
+        setState(() {
+          isLoadingMeals = false;
+          isLoadingWorkouts = false;
+        });
+      }
     }
   }
 
@@ -293,7 +332,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return (parsed != null && parsed > 0) ? parsed : fallback;
   }
 
-  Future<void> _generatePlan(int days) async {
+  Future<void> _updateProfileData(
+      double weight, double targetWeight, String goal) async {
+    try {
+      final profileRepo = ProfileRepository();
+      int? pId = _profileId;
+      if (pId == null || pId == 0) {
+        final profile = await profileRepo.getProfileData();
+        if (profile != null) {
+          pId = profile.profileId;
+          _profileId = pId;
+        }
+      }
+
+      if (pId != null && pId != 0) {
+        await profileRepo.updateProfile(
+          profileId: pId,
+          age: currentAge,
+          height: currentHeight.toInt(),
+          currentWeight: weight.toInt(),
+          targetWeight: targetWeight.toInt(),
+          gender: currentGender,
+          activeLevel: currentActivityLevel,
+          fitnessGoal: goal.toLowerCase().replaceAll(' ', '_'),
+          experienceLevel: currentExperienceLevel,
+          equipment: currentEquipment,
+        );
+      }
+    } catch (e) {
+      debugPrint("Failed to update profile backend during plan generation: $e");
+    }
+  }
+
+  Future<void> _generatePlan({
+    required int days,
+    required double newWeight,
+    required double newTargetWeight,
+    required String newFitnessGoal,
+    bool isArabic = false,
+  }) async {
     setState(() => _isGeneratingPlan = true);
     final snackBar = ScaffoldMessenger.of(context);
     snackBar.showSnackBar(
@@ -302,26 +379,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
           backgroundColor: neonGreen),
     );
     try {
+      // First update backend profile
+      await _updateProfileData(newWeight, newTargetWeight, newFitnessGoal);
+
+      // Also update local state so calculation is immediate
+      if (mounted) {
+        setState(() {
+          currentWeight = newWeight;
+          targetWeightVal = newTargetWeight;
+          currentFitnessGoal = newFitnessGoal;
+          _recalculate();
+        });
+      }
+
       final requestBody = {
         'fullname': widget.userName,
         'email': widget.userEmail,
-        'age': _parsePositive(widget.age, 25),
-        'height': _parsePositive(widget.height, 170),
-        'weight': _parsePositive(widget.weight, 70),
-        'gender': widget.gender ?? 'Male',
-        'targetWeight': _parsePositive(widget.targetWeight, 70),
-        'activityLevel': widget.activityLevel ?? 'light',
-        'fitnessGoal': widget.fitnessGoal ?? 'lose weight',
-        'experienceLevel': widget.experienceLevel ?? 'beginner',
-        'equipment': widget.equipment ?? 'at home',
+        'age': currentAge,
+        'height': currentHeight.toInt(),
+        'weight': newWeight.toInt(),
+        'gender': currentGender,
+        'targetWeight': newTargetWeight.toInt(),
+        'activityLevel': currentActivityLevel,
+        'fitnessGoal': newFitnessGoal.toLowerCase().replaceAll(' ', '_'),
+        'experienceLevel': currentExperienceLevel,
+        'equipment': currentEquipment,
         'planDays': days,
         'durationDays': days,
       };
-      await _planRepo.generatePlan(days, requestBody);
+      await _planRepo.generatePlan(days, requestBody, isArabic: isArabic);
       if (mounted) {
         setState(() {
           _currentPlanDays = days;
-          _selectedPlanDays = days;
           currentDaySlider =
               currentDaySlider.clamp(1.0, days.toDouble()).toDouble();
           currentWorkoutDaySlider =
@@ -332,8 +421,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               content: const Text('Plan generated successfully!'),
               backgroundColor: neonGreen),
         );
-        await _fetchTodayMeals();
-        await _fetchTodayWorkouts();
+        await _loadDashboardData();
       }
     } catch (e) {
       if (mounted) {
@@ -353,10 +441,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _isCancelling = false;
         if (success) {
+          _cachedMealsResponse = null;
+          _cachedWorkoutsResponse = null;
+          _planCreatedAt = null;
           todayMealsList.clear();
           todayWorkoutsData = null;
           consumedCalories = 0.0;
           completedExercisesCount = 0;
+          currentDaySlider = 1.0;
+          currentWorkoutDaySlider = 1.0;
           snackBar.showSnackBar(
             const SnackBar(
                 content: Text('Plan cancelled successfully!'),
@@ -374,38 +467,287 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _showPlanDaysDialog() {
+    int? selectedDays;
+    final weightController =
+        TextEditingController(text: currentWeight.toInt().toString());
+    final targetWeightController =
+        TextEditingController(text: targetWeightVal.toInt().toString());
+
+    String normalizedGoal =
+        currentFitnessGoal.replaceAll('_', ' ').toLowerCase().trim();
+    final validGoals = [
+      "lose weight",
+      "bodybuilding",
+      "powerlifting",
+      "athletics"
+    ];
+    if (!validGoals.contains(normalizedGoal)) {
+      normalizedGoal = "lose weight";
+    }
+    String selectedGoal = normalizedGoal;
+    bool egyptianFood = false;
+    bool internationalFood = true;
+
+    final formKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.calendar_today, color: neonGreen),
-            const SizedBox(width: 10),
-            const Text('Choose Plan Length',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(7, (index) {
-            final days = index + 1;
-            return RadioListTile<int>(
-              title: Text('$days day${days > 1 ? 's' : ''}'),
-              value: days,
-              groupValue: _selectedPlanDays,
-              activeColor: neonGreen,
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedPlanDays = value);
-                  Navigator.of(context).pop();
-                  _generatePlan(value);
-                }
-              },
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24)),
+              title: Row(
+                children: [
+                  Icon(Icons.bolt_rounded, color: neonGreen, size: 28),
+                  const SizedBox(width: 10),
+                  const Text('Plan Details',
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Days Dropdown
+                      const Text(
+                        "Plan Duration",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<int>(
+                        value: selectedDays,
+                        decoration: InputDecoration(
+                          hintText: "Select duration (3-7 days)",
+                          prefixIcon: const Icon(Icons.calendar_today_rounded,
+                              size: 18),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                        items:
+                            List.generate(5, (index) => index + 3).map((days) {
+                          return DropdownMenuItem<int>(
+                            value: days,
+                            child: Text("$days day${days > 1 ? 's' : ''}"),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            selectedDays = val;
+                          });
+                        },
+                        validator: (value) =>
+                            value == null ? "Please select duration" : null,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Current Weight
+                      const Text(
+                        "Current Weight (kg)",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: weightController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          hintText: "e.g. 80",
+                          prefixIcon: const Icon(Icons.monitor_weight_rounded,
+                              size: 18),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty)
+                            return "Please enter current weight";
+                          final parsed = double.tryParse(value);
+                          if (parsed == null || parsed <= 0)
+                            return "Please enter a valid weight";
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Target Weight
+                      const Text(
+                        "Target Weight (kg)",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: targetWeightController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          hintText: "e.g. 75",
+                          prefixIcon: const Icon(Icons.flag_rounded, size: 18),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty)
+                            return "Please enter target weight";
+                          final parsed = double.tryParse(value);
+                          if (parsed == null || parsed <= 0)
+                            return "Please enter a valid weight";
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Fitness Goal Dropdown
+                      const Text(
+                        "Fitness Goal",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.black54),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: selectedGoal,
+                        decoration: InputDecoration(
+                          prefixIcon:
+                              const Icon(Icons.emoji_events_rounded, size: 18),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                        items: validGoals.map((goal) {
+                          return DropdownMenuItem<String>(
+                            value: goal,
+                            child:
+                                Text(goal[0].toUpperCase() + goal.substring(1)),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() {
+                              selectedGoal = val;
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: egyptianFood,
+                            activeColor: neonGreen,
+                            onChanged: (val) {
+                              if (val != null) {
+                                setDialogState(() {
+                                  egyptianFood = val;
+                                  if (val) {
+                                    internationalFood = false;
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                          const Expanded(
+                            child: Text(
+                              "Egyptian food",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Colors.black87),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: internationalFood,
+                            activeColor: neonGreen,
+                            onChanged: (val) {
+                              if (val != null) {
+                                setDialogState(() {
+                                  internationalFood = val;
+                                  if (val) {
+                                    egyptianFood = false;
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                          const Expanded(
+                            child: Text(
+                              "International food",
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Colors.black87),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel',
+                      style: TextStyle(
+                          color: Colors.grey, fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (formKey.currentState?.validate() ?? false) {
+                      final parsedWeight =
+                          double.parse(weightController.text.trim());
+                      final parsedTargetWeight =
+                          double.parse(targetWeightController.text.trim());
+                      Navigator.of(context).pop();
+
+                      _generatePlan(
+                        days: selectedDays!,
+                        newWeight: parsedWeight,
+                        newTargetWeight: parsedTargetWeight,
+                        newFitnessGoal: selectedGoal,
+                        isArabic: egyptianFood,
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: neonGreen,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                  ),
+                  child: const Text('Generate',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
             );
-          }),
-        ),
-      ),
+          },
+        );
+      },
     );
   }
 
@@ -453,35 +795,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onDayChanged(double val) {
-    setState(() => currentDaySlider = val);
-    _fetchMealsByDay(val.toInt());
-  }
-
-  Future<void> _fetchWorkoutsByDay(int day) async {
-    setState(() => isLoadingWorkoutsByDay = true);
-    final response = await _planRepo.fetchTodayWorkouts();
-    if (mounted) {
-      setState(() {
-        if (response != null && response.workouts.isNotEmpty) {
-          todayWorkoutsData = response.workouts.firstWhere(
-            (workoutDay) => workoutDay.day == day,
-            orElse: () => response.workouts.first,
-          );
-          completedExercisesCount = todayWorkoutsData!.exercises
-              .where((e) => e.status == 'DONE')
-              .length;
-        } else {
-          todayWorkoutsData = null;
-          completedExercisesCount = 0;
-        }
-        isLoadingWorkoutsByDay = false;
-      });
-    }
+    setState(() {
+      currentDaySlider = val;
+      final day = val.toInt();
+      if (_cachedMealsResponse != null) {
+        final selectedDayMeals = _cachedMealsResponse!.mealDays
+            .where((mealDay) => mealDay.day == day)
+            .expand((mealDay) => mealDay.meals)
+            .toList();
+        todayMealsList = selectedDayMeals;
+        consumedCalories = todayMealsList
+            .where((m) => m.isDone)
+            .fold(0.0, (sum, m) => sum + m.calories);
+      }
+    });
   }
 
   void _onWorkoutDayChanged(double val) {
-    setState(() => currentWorkoutDaySlider = val);
-    _fetchWorkoutsByDay(val.toInt());
+    setState(() {
+      currentWorkoutDaySlider = val;
+      final day = val.toInt();
+      if (_cachedWorkoutsResponse != null &&
+          _cachedWorkoutsResponse!.workouts.isNotEmpty) {
+        todayWorkoutsData = _cachedWorkoutsResponse!.workouts.firstWhere(
+          (workoutDay) => workoutDay.day == day,
+          orElse: () => _cachedWorkoutsResponse!.workouts.first,
+        );
+        completedExercisesCount = todayWorkoutsData!.exercises
+            .where((e) => e.status == 'DONE')
+            .length;
+      }
+    });
   }
 
   // ==========================================
@@ -606,7 +950,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   children: [
                     _buildHomeStatItem(
                         "Calories",
-                        "${consumedCalories.toInt()}/${targetCalories.toInt()}",
+                        "${consumedCalories.toInt()}/${displayTargetCalories.toInt()}",
                         Icons.local_fire_department,
                         neonGreen),
                     _buildHomeStatItem("Weight", "${currentWeight.toInt()} kg",
@@ -627,7 +971,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 5),
                 LinearProgressIndicator(
                   value: (consumedCalories /
-                          (targetCalories > 0 ? targetCalories : 1))
+                          (displayTargetCalories > 0
+                              ? displayTargetCalories
+                              : 1))
                       .clamp(0.0, 1.0),
                   backgroundColor: Colors.grey.shade200,
                   color: neonGreen,
@@ -851,7 +1197,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   height: 120,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    itemCount: _currentPlanDays,
+                    itemCount:
+                        _cachedMealsResponse != null ? _currentPlanDays : 7,
                     itemBuilder: (context, index) {
                       double barHeight = 40 + (index * 13 % 60).toDouble();
                       bool isSelected = (index + 1) == currentDaySlider.toInt();
@@ -907,7 +1254,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Slider(
                   value: currentDaySlider,
                   min: 1,
-                  max: _currentPlanDays.toDouble(),
+                  max: (_cachedMealsResponse != null ? _currentPlanDays : 7)
+                      .toDouble(),
                   activeColor: Colors.red.shade400,
                   inactiveColor: Colors.grey.shade300,
                   onChanged: _onDayChanged,
@@ -995,11 +1343,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildMacroIndicator("Protein Tracker", neonGreen),
+                    _buildMacroIndicator(
+                        "Protein: ${todayMealsList.where((m) => m.isDone).fold(0.0, (sum, m) => sum + m.protein).toInt()}/${todayMealsList.fold(0.0, (sum, m) => sum + m.protein).toInt()} g",
+                        neonGreen),
                     const SizedBox(height: 6),
-                    _buildMacroIndicator("Carbs Target", accentOrange),
+                    _buildMacroIndicator(
+                        "Carbs: ${todayMealsList.where((m) => m.isDone).fold(0.0, (sum, m) => sum + m.carbs).toInt()}/${todayMealsList.fold(0.0, (sum, m) => sum + m.carbs).toInt()} g",
+                        accentOrange),
                     const SizedBox(height: 6),
-                    _buildMacroIndicator("Fats Balance", accentBlue),
+                    _buildMacroIndicator(
+                        "Fats: ${todayMealsList.where((m) => m.isDone).fold(0.0, (sum, m) => sum + m.fats).toInt()}/${todayMealsList.fold(0.0, (sum, m) => sum + m.fats).toInt()} g",
+                        accentBlue),
                   ],
                 ),
               ],
@@ -1013,6 +1367,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildMealCard(int index) {
     var meal = todayMealsList[index];
     bool isDone = meal.isDone;
+    final int selectedDay = currentDaySlider.toInt();
+    final int currentActiveDay = _activeDay;
+    final bool isCurrentActiveDay = selectedDay == currentActiveDay;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -1041,23 +1398,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: isDone
-                            ? neonGreen.withValues(alpha: 0.1)
-                            : Colors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        meal.mealTime.toUpperCase(),
-                        style: TextStyle(
-                          color: isDone ? neonGreen : Colors.blueAccent,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isDone
+                                ? neonGreen.withValues(alpha: 0.1)
+                                : Colors.blue.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            meal.mealTime.toUpperCase(),
+                            style: TextStyle(
+                              color: isDone ? neonGreen : Colors.blueAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
-                      ),
+                        if (!isCurrentActiveDay) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                              border:
+                                  Border.all(color: Colors.grey, width: 0.5),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  selectedDay < currentActiveDay
+                                      ? Icons.history
+                                      : Icons.lock_outline,
+                                  size: 12,
+                                  color: Colors.grey.shade700,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  selectedDay < currentActiveDay
+                                      ? "Past Day"
+                                      : "Locked",
+                                  style: TextStyle(
+                                    color: Colors.grey.shade700,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -1082,21 +1479,116 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 activeTrackColor: neonGreen.withValues(alpha: 0.3),
                 inactiveThumbColor: Colors.grey.shade400,
                 inactiveTrackColor: Colors.grey.shade200,
-                onChanged: (value) => _toggleMeal(index, value),
+                onChanged: isCurrentActiveDay
+                    ? (value) => _toggleMeal(index, value)
+                    : null,
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          if (meal.ingredients.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade100, width: 1),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.receipt_long_rounded,
+                    size: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      meal.ingredients,
+                      style: TextStyle(
+                        color: isDone ? Colors.grey : Colors.grey.shade700,
+                        fontSize: 12,
+                        height: 1.4,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("${meal.calories.toStringAsFixed(1)} kcal",
-                  style: TextStyle(
-                      color: accentOrange,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold)),
+              _buildMacroCard(
+                  "Calories",
+                  "${meal.calories.toStringAsFixed(1)} kcal",
+                  Icons.local_fire_department,
+                  accentOrange,
+                  isDone),
+              _buildMacroCard("Protein", "${meal.protein.toStringAsFixed(1)}g",
+                  Icons.fitness_center, neonGreen, isDone),
+              _buildMacroCard("Carbs", "${meal.carbs.toStringAsFixed(1)}g",
+                  Icons.grain, accentBlue, isDone),
+              _buildMacroCard("Fats", "${meal.fats.toStringAsFixed(1)}g",
+                  Icons.water_drop, Colors.amber.shade700, isDone),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMacroCard(
+      String label, String value, IconData icon, Color color, bool isDone) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2.0),
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+        decoration: BoxDecoration(
+          color: isDone
+              ? Colors.grey.shade100.withValues(alpha: 0.5)
+              : color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color:
+                isDone ? Colors.grey.shade200 : color.withValues(alpha: 0.15),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isDone ? Colors.grey : color,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isDone ? Colors.grey : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.grey.shade500,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1163,7 +1655,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   height: 120,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    itemCount: _currentPlanDays,
+                    itemCount:
+                        _cachedWorkoutsResponse != null ? _currentPlanDays : 7,
                     itemBuilder: (context, index) {
                       double barHeight = 40 + (index * 13 % 60).toDouble();
                       bool isSelected =
@@ -1221,7 +1714,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Slider(
                   value: currentWorkoutDaySlider,
                   min: 1,
-                  max: _currentPlanDays.toDouble(),
+                  max: (_cachedWorkoutsResponse != null ? _currentPlanDays : 7)
+                      .toDouble(),
                   activeColor: accentOrange,
                   inactiveColor: Colors.grey.shade300,
                   onChanged: _onWorkoutDayChanged,
@@ -1271,6 +1765,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               (index) {
                 var ex = todayWorkoutsData!.exercises[index];
                 bool isDone = ex.status == 'DONE';
+                final int selectedWorkoutDay = currentWorkoutDaySlider.toInt();
+                final int currentActiveDay = _activeDay;
+                final bool isCurrentActiveWorkoutDay =
+                    selectedWorkoutDay == currentActiveDay;
                 return AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   margin: const EdgeInsets.only(bottom: 16),
@@ -1361,6 +1859,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       isDone
                                           ? Colors.grey
                                           : Colors.red.shade700),
+                                if (!isCurrentActiveWorkoutDay)
+                                  _buildWorkoutTag(
+                                      selectedWorkoutDay < currentActiveDay
+                                          ? "Past Day"
+                                          : "Locked",
+                                      Colors.grey.shade700),
                               ],
                             ),
                           ],
@@ -1378,7 +1882,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 borderRadius: BorderRadius.circular(6)),
                             side: BorderSide(
                                 color: Colors.grey.shade400, width: 1.5),
-                            onChanged: (_) => _toggleExercise(index),
+                            onChanged: isCurrentActiveWorkoutDay
+                                ? (_) => _toggleExercise(index)
+                                : null,
                           ),
                         ),
                       ),
@@ -1515,7 +2021,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
             children: [
-              _buildGridStatCard(targetCalories.toInt().toString(),
+              _buildGridStatCard(displayTargetCalories.toInt().toString(),
                   "DAILY TARGET", "kcal / day"),
               _buildGridStatCard(
                   calculatedBMR.toInt().toString(), "BMR", "kcal / day"),
@@ -1523,9 +2029,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   calculatedBMI.toStringAsFixed(1), "BMI", bmiStatus,
                   valueColor: bmiColor),
               _buildGridStatCard(
-                  weightToLose.toStringAsFixed(1), "LOSE WEIGHT", "kg to goal"),
+                  weightToLose.toStringAsFixed(1),
+                  targetWeightVal > currentWeight
+                      ? "GAIN WEIGHT"
+                      : "LOSE WEIGHT",
+                  "kg to goal"),
               _buildGridStatCard(
-                  widget.durationDays ?? "60", "DURATION", "days"),
+                  _currentPlanDays.toString(), "DURATION", "days"),
               _buildGridStatCard(
                   activityMultiplier.toString(), "ACTIVITY", "multiplier"),
             ],
@@ -1590,7 +2100,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 15),
-          if (targetCalories < 1300)
+          if (displayTargetCalories < 1300)
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -1879,15 +2389,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       fontWeight: FontWeight.w500)),
               const SizedBox(width: 15),
               ElevatedButton(
-                onPressed: () async {
-                  final XFile? video =
-                      await _picker.pickVideo(source: ImageSource.gallery);
-                  if (video != null && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text("Processing: ${video.name}"),
-                      backgroundColor: neonGreen,
-                    ));
-                  }
+                // onPressed: () async {
+                //   final XFile? video =
+                //       await _picker.pickVideo(source: ImageSource.gallery);
+                //   if (video != null && mounted) {
+                //     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                //       content: Text("Processing: ${video.name}"),
+                //       backgroundColor: neonGreen,
+                //     ));
+                //   }
+                // },
+                onPressed: () {
+                  // عند الضغط، ينقل اليوزر للـ Flow البروفيشينال (شاشة الـ GIFs)
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ExerciseSelectionScreen(),
+                    ),
+                  );
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: neonGreen,
@@ -1911,8 +2430,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ==========================================
   // HEADER  ← فيه refresh بعد رجوع البروفايل
   // ==========================================
+  Future<void> _navigateToProfile() async {
+    // ── فتح البروفايل وانتظار الرجوع ──
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProfileScreen(
+          userName: widget.userName,
+          userEmail: widget.userEmail,
+          age: currentAge.toString(),
+          height: currentHeight.toInt().toString(),
+          weight: currentWeight.toInt().toString(),
+          targetWeight: targetWeightVal.toInt().toString(),
+          gender: currentGender,
+          activityLevel: currentActivityLevel,
+          fitnessGoal: currentFitnessGoal,
+          experienceLevel: currentExperienceLevel,
+          equipment: currentEquipment,
+        ),
+      ),
+    );
+
+    // ── بعد الرجوع: نجيب بيانات البروفايل المحدثة ونحدث الداشبورد ──
+    if (mounted) {
+      await _refreshAfterProfileUpdate();
+    }
+  }
+
+  void _showLogoutConfirmation() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.logout, color: Colors.red.shade700),
+            const SizedBox(width: 10),
+            const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text('Are you sure you want to log out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final snackBar = ScaffoldMessenger.of(context);
+              try {
+                await _authRepo.logout();
+
+                if (!mounted) return;
+                snackBar.showSnackBar(
+                  const SnackBar(
+                    content: Text('Logged out successfully'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+
+                Navigator.of(context)
+                    .pushNamedAndRemoveUntil('/intro', (route) => false);
+              } catch (e) {
+                if (!mounted) return;
+                snackBar.showSnackBar(
+                  SnackBar(
+                    content: Text('Logout failed: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHeader() {
-    print("isAdmin value: ${widget.isAdmin}"); // ✅ أضف السطر ده مؤقتاً
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1920,13 +2526,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                "Hello, ${widget.userName}!",
-                style: const TextStyle(
-                    color: Colors.black87,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      "Hello, ${widget.userName}!",
+                      style: const TextStyle(
+                          color: Colors.black87,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (widget.isAdmin) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border:
+                            Border.all(color: Colors.red.shade300, width: 0.5),
+                      ),
+                      child: Text(
+                        "Admin",
+                        style: TextStyle(
+                          color: Colors.red.shade800,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
               Text(
                 "Welcome back to your ultimate dashboard.",
@@ -1934,56 +2567,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-        ), // ✅ زرار Admin Panel — بيظهر بس لو isAdmin == true
-        if (widget.isAdmin) ...[
-          ElevatedButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const AdminScreen()),
+        ),
+        PopupMenuButton<String>(
+          icon: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.grey.shade200),
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Admin',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            child: Icon(Icons.more_vert_rounded, color: Colors.grey.shade700),
+            //  child: Icon(Icons.manage_accounts, color: Colors.grey.shade700),
           ),
-          const SizedBox(width: 8),
-        ],
-        GestureDetector(
-          onTap: () async {
-            // ── فتح البروفايل وانتظار الرجوع ──
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ProfileScreen(
-                  userName: widget.userName,
-                  userEmail: widget.userEmail,
-                  age: widget.age ?? "25",
-                  height: widget.height ?? "170",
-                  weight: widget.weight ?? "70",
-                  targetWeight: widget.targetWeight ?? "70",
-                  gender: widget.gender ?? "Male",
-                  activityLevel: widget.activityLevel ?? "moderate",
-                  fitnessGoal: widget.fitnessGoal ?? "lose weight",
-                  experienceLevel: widget.experienceLevel ?? "beginner",
-                  equipment: widget.equipment ?? "full gym",
-                ),
-              ),
-            );
-
-            // ── بعد الرجوع: نجيب بيانات البروفايل المحدثة ونحدث الداشبورد ──
-            if (mounted) {
-              await _refreshAfterProfileUpdate();
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          onSelected: (value) {
+            if (value == 'profile') {
+              _navigateToProfile();
+            } else if (value == 'admin') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) =>
+                        AdminScreen(adminName: widget.userName)),
+              );
+            } else if (value == 'logout') {
+              _showLogoutConfirmation();
             }
           },
-          child: CircleAvatar(
-              backgroundColor: neonGreen,
-              radius: 24,
-              child: const Icon(Icons.person, color: Colors.white)),
+          itemBuilder: (context) => [
+            PopupMenuItem<String>(
+              value: 'profile',
+              child: Row(
+                children: [
+                  Icon(Icons.person_outline_rounded, color: neonGreen),
+                  const SizedBox(width: 12),
+                  const Text('My Profile',
+                      style: TextStyle(fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            if (widget.isAdmin)
+              PopupMenuItem<String>(
+                value: 'admin',
+                child: Row(
+                  children: [
+                    Icon(Icons.admin_panel_settings_outlined,
+                        color: Colors.red.shade700),
+                    const SizedBox(width: 12),
+                    const Text('Admin Panel',
+                        style: TextStyle(fontWeight: FontWeight.w500)),
+                  ],
+                ),
+              ),
+            PopupMenuItem<String>(
+              value: 'logout',
+              child: Row(
+                children: [
+                  Icon(Icons.logout_rounded, color: Colors.grey.shade700),
+                  const SizedBox(width: 12),
+                  const Text('Logout',
+                      style: TextStyle(fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1993,14 +2641,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// يجيب أحدث بيانات البروفايل من الـ API عشان الوزن ميكونش قديم
   Future<void> _refreshProfileDataOnDashboardLoad() async {
     try {
-      final repo = _ProfileRefreshHelper();
-      final profile = await repo.fetchLatestData();
+      final repo = ProfileRepository();
+      final profile = await repo.getProfileData();
 
       if (profile != null && mounted) {
         setState(() {
-          currentWeight = profile.currentWeight;
-          targetWeightVal = profile.targetWeight;
+          _profileId = profile.profileId;
+          currentWeight = profile.currentWeight.toDouble();
+          targetWeightVal = profile.targetWeight.toDouble();
           currentFitnessGoal = profile.fitnessGoal;
+          currentAge = profile.age;
+          currentHeight = profile.height.toDouble();
+          currentGender = profile.gender;
+          currentActivityLevel = profile.activeLevel;
+          currentExperienceLevel = profile.experienceLevel;
+          currentEquipment = profile.equipment;
           _recalculate();
         });
       }
@@ -2014,14 +2669,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// يجيب أحدث بيانات البروفايل ويحدث currentWeight, targetWeightVal وكل المشتقات
   Future<void> _refreshAfterProfileUpdate() async {
     try {
-      final repo = _ProfileRefreshHelper();
-      final profile = await repo.fetchLatestData();
+      final repo = ProfileRepository();
+      final profile = await repo.getProfileData();
 
       if (profile != null && mounted) {
         setState(() {
-          currentWeight = profile.currentWeight;
-          targetWeightVal = profile.targetWeight;
+          _profileId = profile.profileId;
+          currentWeight = profile.currentWeight.toDouble();
+          targetWeightVal = profile.targetWeight.toDouble();
           currentFitnessGoal = profile.fitnessGoal;
+          currentAge = profile.age;
+          currentHeight = profile.height.toDouble();
+          currentGender = profile.gender;
+          currentActivityLevel = profile.activeLevel;
+          currentExperienceLevel = profile.experienceLevel;
+          currentEquipment = profile.equipment;
           _recalculate();
         });
       }
@@ -2058,39 +2720,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: Icon(Icons.psychology), label: 'AI Exercise'),
       ],
     );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// Helper model + class للـ refresh بعد ProfileScreen
-// ══════════════════════════════════════════════════════════════════
-
-class _LatestProfileData {
-  final double currentWeight;
-  final double targetWeight;
-  final String fitnessGoal;
-  _LatestProfileData({
-    required this.currentWeight,
-    required this.targetWeight,
-    required this.fitnessGoal,
-  });
-}
-
-/// يجيب أحدث بيانات البروفايل من الـ ProfileRepository
-class _ProfileRefreshHelper {
-  Future<_LatestProfileData?> fetchLatestData() async {
-    try {
-      final repo = ProfileRepository();
-      final profile = await repo.getProfileData();
-      if (profile == null) return null;
-      return _LatestProfileData(
-        currentWeight: profile.currentWeight.toDouble(),
-        targetWeight: profile.targetWeight.toDouble(),
-        fitnessGoal: profile.fitnessGoal,
-      );
-    } catch (_) {
-      return null;
-    }
   }
 }
 

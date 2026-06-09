@@ -24,6 +24,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   bool _isLoading = false;
   final AuthRepository _authRepository = AuthRepository();
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   // --- 1. دالة التسجيل بالإيميل والباسورد (API) ---
   Future<void> _signUp() async {
@@ -33,8 +35,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
         final user = await _authRepository.register(
           fullname: _nameController.text.trim(),
           email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-          confirmPassword: _confirmPasswordController.text.trim(),
+          password: _passwordController.text,
+          confirmPassword: _confirmPasswordController.text,
         );
 
         if (!mounted) return;
@@ -42,13 +44,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
         try {
           await FirebaseAuth.instance.createUserWithEmailAndPassword(
             email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
+            password: _passwordController.text,
           );
         } catch (firebaseError) {
           try {
             await FirebaseAuth.instance.signInWithEmailAndPassword(
               email: _emailController.text.trim(),
-              password: _passwordController.text.trim(),
+              password: _passwordController.text,
             );
           } catch (_) {
             // Ignore here; we'll verify existence below.
@@ -168,22 +170,57 @@ class _SignUpScreenState extends State<SignUpScreen> {
               _buildTextField(
                 controller: _emailController,
                 label: 'Email',
-                hintText: 'example@mail.com',
+                hintText: 'example@gmail.com',
                 icon: Icons.email_outlined,
-                validator: (val) => (val == null || !val.contains('@'))
-                    ? 'Enter a valid email'
-                    : null,
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'Email is required';
+                  }
+                  final trimmed = val.trim();
+                  // Require a valid Gmail address following Google's format:
+                  // 6 to 30 characters consisting of a-z, 0-9, and . before @gmail.com
+                  final gmailRegex = RegExp(r'^[a-zA-Z0-9.]{6,30}@gmail\.com$',
+                      caseSensitive: false);
+                  if (!gmailRegex.hasMatch(trimmed)) {
+                    return 'Please enter a valid Gmail address (6-30 chars, a-z, 0-9, .)';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 20),
               _buildTextField(
                 controller: _passwordController,
                 label: 'Password',
-                hintText: 'At least 6 characters',
+                hintText: 'Min. 8 chars, uppercase, lowercase, number & symbol',
                 icon: Icons.lock_outline,
                 isPassword: true,
-                validator: (val) => (val == null || val.length < 6)
-                    ? 'Password is too short'
-                    : null,
+                obscureText: _obscurePassword,
+                onToggleVisibility: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+                validator: (val) {
+                  if (val == null || val.isEmpty) {
+                    return 'Password is required';
+                  }
+                  if (val.length < 8) {
+                    return 'Password must be at least 8 characters long';
+                  }
+                  if (!RegExp(r'[A-Z]').hasMatch(val)) {
+                    return 'Must contain at least one uppercase letter';
+                  }
+                  if (!RegExp(r'[a-z]').hasMatch(val)) {
+                    return 'Must contain at least one lowercase letter';
+                  }
+                  if (!RegExp(r'[0-9]').hasMatch(val)) {
+                    return 'Must contain at least one digit';
+                  }
+                  if (!RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(val)) {
+                    return 'Must contain at least one special character';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 20),
               _buildTextField(
@@ -192,6 +229,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 hintText: 'Repeat password',
                 icon: Icons.lock_reset,
                 isPassword: true,
+                obscureText: _obscureConfirmPassword,
+                onToggleVisibility: () {
+                  setState(() {
+                    _obscureConfirmPassword = !_obscureConfirmPassword;
+                  });
+                },
                 validator: (val) => (val != _passwordController.text)
                     ? 'Passwords do not match'
                     : null,
@@ -220,46 +263,46 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Divider(color: Colors.grey.shade300),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 10),
-                              child: Text(
-                                "OR",
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            ),
-                            Expanded(
-                              child: Divider(color: Colors.grey.shade300),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        OutlinedButton.icon(
-                          onPressed: _signInWithGoogle,
-                          icon: Image.asset(
-                            'assets/images/Google__G__logo.svg.webp',
-                            height: 24,
-                          ),
-                          label: const Text(
-                            "Continue with Google",
-                            style: TextStyle(
-                              color: Colors.black,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 55),
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
+                        // const SizedBox(height: 20),
+                        // Row(
+                        //   children: [
+                        //     Expanded(
+                        //       child: Divider(color: Colors.grey.shade300),
+                        //     ),
+                        //     const Padding(
+                        //       padding: EdgeInsets.symmetric(horizontal: 10),
+                        //       child: Text(
+                        //         "OR",
+                        //         style: TextStyle(color: Colors.grey),
+                        //       ),
+                        //     ),
+                        //     Expanded(
+                        //       child: Divider(color: Colors.grey.shade300),
+                        //     ),
+                        //   ],
+                        // ),
+                        // const SizedBox(height: 20),
+                        // OutlinedButton.icon(
+                        //   onPressed: _signInWithGoogle,
+                        //   icon: Image.asset(
+                        //     'assets/images/Google__G__logo.svg.webp',
+                        //     height: 24,
+                        //   ),
+                        //   label: const Text(
+                        //     "Continue with Google",
+                        //     style: TextStyle(
+                        //       color: Colors.black,
+                        //       fontWeight: FontWeight.w600,
+                        //     ),
+                        //   ),
+                        //   style: OutlinedButton.styleFrom(
+                        //     minimumSize: const Size(double.infinity, 55),
+                        //     side: BorderSide(color: Colors.grey.shade300),
+                        //     shape: RoundedRectangleBorder(
+                        //       borderRadius: BorderRadius.circular(12),
+                        //     ),
+                        //   ),
+                        // ),
                       ],
                     ),
               const SizedBox(height: 30),
@@ -276,6 +319,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     required String hintText,
     required IconData icon,
     bool isPassword = false,
+    bool obscureText = false,
+    VoidCallback? onToggleVisibility,
     String? Function(String?)? validator,
   }) {
     return Column(
@@ -288,11 +333,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
-          obscureText: isPassword,
+          obscureText: obscureText,
           validator: validator,
           decoration: InputDecoration(
             hintText: hintText,
             prefixIcon: Icon(icon, color: Colors.grey, size: 20),
+            suffixIcon: isPassword
+                ? IconButton(
+                    icon: Icon(
+                      obscureText ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey,
+                    ),
+                    onPressed: onToggleVisibility,
+                  )
+                : null,
             fillColor: lightGray,
             filled: true,
             contentPadding: const EdgeInsets.symmetric(vertical: 16),

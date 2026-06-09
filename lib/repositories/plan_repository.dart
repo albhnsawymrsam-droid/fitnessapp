@@ -89,19 +89,20 @@ class PlanRepository {
   }
 
   Future<Map<String, dynamic>> generatePlan(
-      int days, Map<String, dynamic> requestBody) async {
+      int days, Map<String, dynamic> requestBody,
+      {bool isArabic = false}) async {
     try {
       await _api.restoreAuthToken();
 
-      final requestUrl = '${AppConstants.railwayUrl}plan/$days';
+      final String queryParam = isArabic ? '?arabic=true' : '';
+      final requestUrl = '${AppConstants.railwayUrl}plan/$days$queryParam';
       print('*** GENERATE PLAN REQUEST ***');
       print('url: $requestUrl');
       print('method: POST');
       print('data: $requestBody');
       print('*** END GENERATE PLAN REQUEST ***');
 
-      final response = await _api.post('${AppConstants.railwayUrl}plan/$days',
-          data: requestBody);
+      final response = await _api.post(requestUrl, data: requestBody);
 
       print('*** GENERATE PLAN RESPONSE ***');
       print('url: ${response.requestOptions.uri}');

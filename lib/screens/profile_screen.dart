@@ -772,144 +772,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _sendVerificationCode(String email) async {
-    try {
-      await _authRepository.forgetPassword(email: email);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Verification code sent to your email'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to send verification code: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   void _showLogoutDialog(BuildContext context) {
-    // ... بقية دالة تسجيل الخروج كما هي بدون أي تغييرات ...
-    final emailCtrl = TextEditingController(text: widget.userEmail);
-    final codeCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
-    final confirmPasswordCtrl = TextEditingController();
-
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        title: const Text('Logout & Reset Password'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'A verification code will be sent to your email. Use it to complete logout and reset password.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: emailCtrl,
-                enabled: false,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: codeCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Verification Code',
-                  hintText: 'Enter code from email',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'New Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmPasswordCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Confirm Logout',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        content: const Text('Are you sure you want to log out?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => _sendVerificationCode(emailCtrl.text.trim()),
-            child: const Text('Send Code'),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey[700]),
+            ),
           ),
           ElevatedButton(
             onPressed: () async {
-              if (codeCtrl.text.isEmpty ||
-                  passwordCtrl.text.isEmpty ||
-                  confirmPasswordCtrl.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please fill all fields'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              if (passwordCtrl.text != confirmPasswordCtrl.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Passwords do not match'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
+              Navigator.pop(ctx);
               setState(() => _isLoading = true);
               try {
-                await _authRepository.resetPassword(
-                  email: emailCtrl.text.trim(),
-                  code: codeCtrl.text.trim(),
-                  newPassword: passwordCtrl.text.trim(),
-                  confirmPassword: confirmPasswordCtrl.text.trim(),
-                );
+                await _authRepository.logout();
 
-                if (!mounted) return;
-                Navigator.pop(ctx);
-
-                // ApiService.instance.setAuthToken(null);
-
+                if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Password reset successfully'),
+                    content: Text('Logged out successfully'),
                     backgroundColor: Colors.green,
                   ),
                 );
 
                 Navigator.of(context)
-                    .pushNamedAndRemoveUntil('/login', (route) => false);
+                    .pushNamedAndRemoveUntil('/intro', (route) => false);
               } catch (e) {
+                if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Logout failed: $e'),
@@ -917,11 +817,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 );
               } finally {
-                setState(() => _isLoading = false);
+                if (mounted) {
+                  setState(() => _isLoading = false);
+                }
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: primaryGreen,
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             child: const Text('Logout'),
           ),

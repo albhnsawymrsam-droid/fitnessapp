@@ -8,7 +8,7 @@ import '../models/profile_model.dart';
 class ProfileRepository {
   final ApiService _api = ApiService.instance;
 
-  Future<Map<String, dynamic>> addProfile({
+  Future<UserProfile?> addProfile({
     required int age,
     required String gender,
     required int height,
@@ -19,25 +19,34 @@ class ProfileRepository {
     required String experienceLevel,
     required String equipment,
   }) async {
-    final response = await _api.post('addprofile', data: {
-      'age': age,
-      'gender': gender,
-      'height': height,
-      'current_weight': currentWeight,
-      'target_weight': targetWeight,
-      'active_level': activeLevel,
-      'fitness_goal': fitnessGoal,
-      'experience_level': experienceLevel,
-      'equipment': equipment,
-    });
+    try {
+      await _api.restoreAuthToken();
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final data = response.data;
-      return data['data']?['profile'] ?? {};
+      final response = await _api.post(
+        '${AppConstants.vercelUrl}addprofile',
+        data: {
+          'age': age,
+          'gender': gender,
+          'height': height,
+          'current_weight': currentWeight,
+          'target_weight': targetWeight,
+          'active_level': activeLevel,
+          'fitness_goal': fitnessGoal,
+          'experience_level': experienceLevel,
+          'equipment': equipment,
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.data['status'] == 'success') {
+          return UserProfile.fromJson(response.data);
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint("Error in addProfile repository: $e");
+      return null;
     }
-
-    throw Exception(
-        'Failed to add profile: ${response.statusCode} ${response.statusMessage}');
   }
 
   // ضيف الدالة دي عشان تجيب بيانات البروفايل

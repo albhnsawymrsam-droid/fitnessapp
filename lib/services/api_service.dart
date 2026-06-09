@@ -38,7 +38,7 @@ class ApiService {
             final context = navigatorKey.currentContext;
             if (context != null) {
               Navigator.of(context)
-                  .pushNamedAndRemoveUntil('/login', (route) => false);
+                  .pushNamedAndRemoveUntil('/intro', (route) => false);
             }
           }
           handler.next(error);

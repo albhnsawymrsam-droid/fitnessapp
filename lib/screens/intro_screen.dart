@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 //import 'splash_screen.dart'; // تأكد من وجود ملف الـ Splash Screen في نفس المسار أو تعديل المسار
 import 'login_screen.dart';
+import 'vitaflow_guide_screen.dart';
 
 class IntroScreen extends StatelessWidget {
   const IntroScreen({super.key});
@@ -25,14 +26,14 @@ class IntroScreen extends StatelessWidget {
                       text: const TextSpan(
                         children: [
                           TextSpan(
-                            text: 'SMART ',
+                            text: 'VITA ',
                             style: TextStyle(
                                 color: Colors.green,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 20),
                           ),
                           TextSpan(
-                            text: 'Nutrition',
+                            text: 'FLOW',
                             style: TextStyle(
                                 color: Colors.black,
                                 fontWeight: FontWeight.bold,
@@ -75,7 +76,7 @@ class IntroScreen extends StatelessWidget {
                 ),
               ),
               const Text(
-                'Smart Nutrition',
+                'Vitaflow',
                 style: TextStyle(
                   fontSize: 38,
                   fontWeight: FontWeight.w900,
@@ -134,7 +135,14 @@ class IntroScreen extends StatelessWidget {
                       width: double.infinity,
                       height: 55,
                       child: OutlinedButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const VitaFlowGuideScreen(),
+                            ),
+                          );
+                        },
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.black,
                           side: const BorderSide(color: Colors.grey, width: 1),
@@ -157,7 +165,7 @@ class IntroScreen extends StatelessWidget {
 
               // 3. الجزء الثاني من الصورة (Why Choose Us Section)
               const Text(
-                'Why Choose Smart Nutrition?',
+                'Why Choose Vitaflow  ?',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 24,
@@ -213,7 +221,7 @@ class IntroScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'SMART Nutrition',
+                      'VITAFLOW',
                       style: TextStyle(
                           color: Colors.green,
                           fontWeight: FontWeight.bold,
@@ -234,7 +242,7 @@ class IntroScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     const Text(
-                      '01068901389',
+                      '01147786683',
                       style: TextStyle(
                           color: Colors.black,
                           fontWeight: FontWeight.w900,

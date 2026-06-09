@@ -27,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isLoading = false;
   bool _isAdmin = false;
+  bool _obscurePassword = true;
   final AuthRepository _authRepository = AuthRepository();
 
   // --- ميثود التنقل والتحقق من Firestore ---
@@ -234,8 +235,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         final token = result['token'];
         debugPrint('LOGIN token: $token');
-        if (token != null){ ApiService.instance.setAuthToken(token);
-        
+        if (token != null) {
+          ApiService.instance.setAuthToken(token);
         }
 
         final user = result['user'];
@@ -339,13 +340,25 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              color: Colors.black87),
+          onPressed: () {
+            Navigator.of(context)
+                .pushNamedAndRemoveUntil('/intro', (route) => false);
+          },
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 25.0),
         child: Form(
           key: _formKey,
           child: Column(
             children: <Widget>[
-              SizedBox(height: MediaQuery.of(context).padding.top + 40),
+              const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(15),
                 decoration: BoxDecoration(
@@ -409,6 +422,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 hintText: 'Enter your password',
                 icon: Icons.lock_outline,
                 isPassword: true,
+                obscureText: _obscurePassword,
+                onToggleVisibility: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
                 validator: (value) => (value == null || value.length < 6)
                     ? 'Password is too short'
                     : null,
@@ -479,34 +498,34 @@ class _LoginScreenState extends State<LoginScreen> {
                         //     ),
                         //   ),
                         // ),
-                        const SizedBox(height: 20),
-
-                        // زرار جوجل بعد تعديل الأيقونة
-                        OutlinedButton.icon(
-                          onPressed: _signInWithGoogle,
-                          icon: Image.asset(
-                            'assets/images/Google__G__logo.svg.webp',
-                            height: 24,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const Icon(
-                              Icons.account_circle,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          label: Text(
-                            _isAdmin
-                                ? "Login as Admin with Google"
-                                : "Continue with Google",
-                            style: const TextStyle(color: Colors.black),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 55),
-                            side: BorderSide(color: Colors.grey.shade300),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
+                        // const SizedBox(height: 20),
+                        //
+                        // // زرار جوجل بعد تعديل الأيقونة
+                        // OutlinedButton.icon(
+                        //   onPressed: _signInWithGoogle,
+                        //   icon: Image.asset(
+                        //     'assets/images/Google__G__logo.svg.webp',
+                        //     height: 24,
+                        //     errorBuilder: (context, error, stackTrace) =>
+                        //         const Icon(
+                        //       Icons.account_circle,
+                        //       color: Colors.grey,
+                        //     ),
+                        //   ),
+                        //   label: Text(
+                        //     _isAdmin
+                        //         ? "Login as Admin with Google"
+                        //         : "Continue with Google",
+                        //     style: const TextStyle(color: Colors.black),
+                        //   ),
+                        //   style: OutlinedButton.styleFrom(
+                        //     minimumSize: const Size(double.infinity, 55),
+                        //     side: BorderSide(color: Colors.grey.shade300),
+                        //     shape: RoundedRectangleBorder(
+                        //       borderRadius: BorderRadius.circular(12),
+                        //     ),
+                        //   ),
+                        // ),
                       ],
                     ),
 
@@ -577,6 +596,8 @@ class _LoginScreenState extends State<LoginScreen> {
     required String hintText,
     required IconData icon,
     bool isPassword = false,
+    bool obscureText = false,
+    VoidCallback? onToggleVisibility,
     String? Function(String?)? validator,
   }) {
     return Column(
@@ -586,11 +607,22 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
-          obscureText: isPassword,
+          obscureText: obscureText,
           validator: validator,
           decoration: InputDecoration(
             hintText: hintText,
             prefixIcon: Icon(icon, color: Colors.grey),
+            suffixIcon: isPassword && onToggleVisibility != null
+                ? IconButton(
+                    icon: Icon(
+                      obscureText
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: Colors.grey,
+                    ),
+                    onPressed: onToggleVisibility,
+                  )
+                : null,
             fillColor: lightGray,
             filled: true,
             border: OutlineInputBorder(

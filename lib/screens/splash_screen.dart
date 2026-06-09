@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
+import '../repositories/profile_repository.dart';
 import 'dashboard_screen.dart';
 import 'intro_screen.dart';
 import 'onboarding_screen.dart';
@@ -24,15 +27,100 @@ class _SplashScreenState extends State<SplashScreen> {
     // 1. استنى ثانيتين عشان اللوجو يظهر (شياكة)
     await Future.delayed(const Duration(seconds: 2));
 
-    // 2. هل فيه يوزر مسجل أصلاً؟
-    User? user = FirebaseAuth.instance.currentUser;
+    // 2. استرجاع الـ token الخاص بالـ API
+    await ApiService.instance.restoreAuthToken();
 
-    if (user == null) {
-      // مش مسجل -> وديه على صفحة الـ Intro
-      _navigateTo(const IntroScreen());
+    final apiToken = ApiService.instance.authToken;
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    // 3. التحقق من تسجيل الدخول عبر الـ API أولاً
+    if (apiToken != null && apiToken.isNotEmpty) {
+      try {
+        final profile = await ProfileRepository().getProfileData();
+        if (profile != null) {
+          // لديه ملف شخصي كامل -> الذهاب للـ Dashboard مباشرة
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DashboardScreen(
+                userName: profile.fullName,
+                userEmail: profile.email,
+                age: profile.age.toString(),
+                height: profile.height.toString(),
+                weight: profile.currentWeight.toString(),
+                gender: profile.gender,
+                targetWeight: profile.targetWeight.toString(),
+                activityLevel: profile.activeLevel,
+                fitnessGoal: profile.fitnessGoal,
+                experienceLevel: profile.experienceLevel,
+                equipment: profile.equipment,
+                durationDays: "",
+              ),
+            ),
+          );
+          return;
+        } else {
+          // مسجل دخول ولكن لم يكمل بياناته (أونبوردينج)
+          // نحاول إيجاد الإيميل والاسم المخزنين محلياً
+          final prefs = await SharedPreferences.getInstance();
+          final savedName = prefs.getString('user_name') ?? "Member";
+          final savedEmail = prefs.getString('user_email') ?? "";
+
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OnboardingScreen(
+                userName: savedName,
+                userEmail: savedEmail.isNotEmpty
+                    ? savedEmail
+                    : (firebaseUser?.email ?? ""),
+              ),
+            ),
+          );
+          return;
+        }
+      } catch (e) {
+        debugPrint("Splash API login error: $e");
+        // لو حدث خطأ في النت ولكن الـ token موجود واليوزر محفوظ محلياً، ممكن نحاول نستخدم البيانات المحفوظة
+        final prefs = await SharedPreferences.getInstance();
+        final savedName = prefs.getString('user_name');
+        final savedEmail = prefs.getString('user_email');
+        final hasProfile = prefs.getBool('has_profile') ?? false;
+
+        if (savedName != null && savedEmail != null && hasProfile) {
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DashboardScreen(
+                userName: savedName,
+                userEmail: savedEmail,
+                age: "",
+                height: "",
+                weight: "",
+                gender: "",
+                targetWeight: "",
+                activityLevel: "",
+                fitnessGoal: "",
+                experienceLevel: "",
+                equipment: "",
+                durationDays: "",
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    }
+
+    // 4. التحقق من تسجيل الدخول عبر Firebase إذا لم يكن هناك تسجيل عبر الـ API
+    if (firebaseUser != null) {
+      _checkFirestoreData(firebaseUser.uid, firebaseUser.email ?? "");
     } else {
-      // مسجل -> تعال نشوف الداتابيز بتاعته
-      _checkFirestoreData(user.uid, user.email ?? "");
+      // غير مسجل إطلاقاً -> صفحة الـ Intro
+      _navigateTo(const IntroScreen());
     }
   }
 

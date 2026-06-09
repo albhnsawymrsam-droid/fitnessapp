@@ -44,6 +44,11 @@ class AuthRepository {
         _api.setAuthToken(token.toString());
       }
 
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_name', user.fullname);
+      await prefs.setString('user_email', user.email);
+      await prefs.setBool('has_profile', hasProfile);
+
       return {
         'user': user,
         'token': token,
@@ -66,6 +71,11 @@ class AuthRepository {
       'email': email,
       'password': password,
       'confirmPassword': confirmPassword,
+      'passwordConfirm': confirmPassword,
+      'password_confirm': confirmPassword,
+      'confirm_password': confirmPassword,
+      'passwordConfirmation': confirmPassword,
+      'password_confirmation': confirmPassword,
     });
 
     if (response.statusCode == 200 || response.statusCode == 201) {
@@ -74,6 +84,12 @@ class AuthRepository {
       final user = UserModel.fromJson(userData);
       final token = data['token'];
       if (token != null) _api.setAuthToken(token.toString());
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_name', user.fullname);
+      await prefs.setString('user_email', user.email);
+      await prefs.setBool('has_profile', false);
+
       return user;
     }
 
@@ -93,14 +109,19 @@ class AuthRepository {
   //       requestOptions: response.requestOptions, response: response);
   // }
   Future<Map<String, dynamic>> logout() async {
-    final response = await _api.post('logout');
+    final response = await _api.post('${AppConstants.vercelUrl}logout');
 
-    if (response.statusCode == 200) {
+    if (response.statusCode == 200 ||
+        response.statusCode == 201 ||
+        (response.data != null && response.data['status'] == 'success')) {
       _api.setAuthToken(null);
 
-      // ✅ امسح الـ token المحفوظ
+      // ✅ امسح الـ token المحفوظ وكل بيانات اليوزر
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('auth_token');
+      await prefs.remove('user_name');
+      await prefs.remove('user_email');
+      await prefs.remove('has_profile');
 
       return response.data;
     }

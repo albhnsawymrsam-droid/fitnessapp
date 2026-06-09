@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'admin_get_all_users.dart';
 import 'admin_get_user_by_id.dart';
@@ -7,7 +8,8 @@ import 'admin_user_analysis.dart';
 import 'admin_get_all_profile.dart';
 
 class AdminScreen extends StatefulWidget {
-  const AdminScreen({super.key});
+  final String? adminName;
+  const AdminScreen({super.key, this.adminName});
 
   @override
   State<AdminScreen> createState() => _AdminScreenState();
@@ -18,6 +20,40 @@ class _AdminScreenState extends State<AdminScreen> {
   final Color lightGray = const Color(0xFFF5F6F8);
 
   bool _loading = false;
+  String _adminName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _adminName = widget.adminName ?? '';
+    if (_adminName.isEmpty) {
+      _loadAdminName();
+    }
+  }
+
+  Future<void> _loadAdminName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final name = prefs.getString('user_name');
+      if (name != null && name.isNotEmpty) {
+        setState(() {
+          _adminName = name;
+        });
+      } else {
+        final user = FirebaseAuth.instance.currentUser;
+        setState(() {
+          _adminName =
+              user?.displayName ?? user?.email?.split('@').first ?? 'Admin';
+        });
+      }
+    } catch (_) {
+      final user = FirebaseAuth.instance.currentUser;
+      setState(() {
+        _adminName =
+            user?.displayName ?? user?.email?.split('@').first ?? 'Admin';
+      });
+    }
+  }
 
   void _showMessage(String msg) {
     if (!mounted) return;
@@ -79,7 +115,7 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  Future<void> _logout() async {
+  Future<void> logout() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -111,23 +147,77 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
-  Widget _actionButton(String label, VoidCallback onTap) {
-    return Expanded(
-      child: SizedBox(
-        height: 64,
-        child: ElevatedButton(
-          onPressed: onTap,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: lightGray,
-            foregroundColor: Colors.black87,
-            elevation: 2,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+  Widget _buildAdminCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: primaryGreen.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: primaryGreen, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          description,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.grey.shade400,
+                    size: 26,
+                  ),
+                ],
+              ),
+            ),
           ),
-          child: Text(label,
-              style:
-                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         ),
       ),
     );
@@ -135,91 +225,118 @@ class _AdminScreenState extends State<AdminScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final userName =
-        user?.displayName ?? user?.email?.split('@').first ?? 'username';
+    final userName = _adminName.isNotEmpty ? _adminName : 'Admin';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF4F6F9),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: const Text('', style: TextStyle(color: Colors.black)),
+        iconTheme: const IconThemeData(color: Colors.black87),
+        title: const Text(
+          'Admin Control Panel',
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
+        ),
+        centerTitle: true,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
+                gradient: LinearGradient(
+                  colors: [primaryGreen, const Color(0xFF1B5E20)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.grey.shade200,
-                      blurRadius: 8,
-                      offset: const Offset(0, 4))
+                    color: primaryGreen.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  )
                 ],
               ),
-              child: Center(
-                child: Text('Welcome Mr $userName',
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.w700)),
-              ),
-            ),
-
-            const SizedBox(height: 36),
-
-            // First row
-            Row(
-              children: [
-                _actionButton('get all user', _getAllUsers),
-                const SizedBox(width: 16),
-                _actionButton('get user by id', _getUserById),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Second row
-            Row(
-              children: [
-                _actionButton('get all user analysis', _getAllUserAnalysis),
-                const SizedBox(width: 16),
-                _actionButton('get all profile', _getAllProfile),
-              ],
-            ),
-
-            const Spacer(),
-
-            Center(
-              child: SizedBox(
-                width: 200,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _logout,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryGreen,
-                    foregroundColor: Colors.white,
-                    elevation: 3,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.admin_panel_settings_rounded,
+                      color: Colors.white,
+                      size: 36,
+                    ),
                   ),
-                  child: const Text('Logout',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'SYSTEM ADMINISTRATOR',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          userName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-
+            const SizedBox(height: 30),
+            _buildAdminCard(
+              title: 'Get All Users',
+              description: 'View and manage registered user accounts.',
+              icon: Icons.people_alt_rounded,
+              onTap: _getAllUsers,
+            ),
+            _buildAdminCard(
+              title: 'Get User By ID',
+              description: 'Search for a specific user using their ID.',
+              icon: Icons.person_search_rounded,
+              onTap: _getUserById,
+            ),
+            _buildAdminCard(
+              title: 'Get All User Analysis',
+              description: 'Analyze users exercise, plan, and meal statistics.',
+              icon: Icons.analytics_rounded,
+              onTap: _getAllUserAnalysis,
+            ),
+            _buildAdminCard(
+              title: 'Get All Profiles',
+              description: 'View comprehensive profiles of registered users.',
+              icon: Icons.manage_accounts_rounded,
+              onTap: _getAllProfile,
+            ),
             if (_loading) ...[
-              const SizedBox(height: 18),
-              const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF2E8B57))),
+              const SizedBox(height: 24),
+              Center(child: CircularProgressIndicator(color: primaryGreen)),
             ]
           ],
         ),

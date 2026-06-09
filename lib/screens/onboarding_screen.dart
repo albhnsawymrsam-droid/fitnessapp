@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dashboard_screen.dart';
+import '../repositories/profile_repository.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final String userName;
@@ -127,37 +128,73 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return isValid;
   }
 
-  Future<void> _saveToFirestore() async {
+  Future<bool> _saveToFirestore() async {
     setState(() => _isLoading = true);
     try {
       final String uid = FirebaseAuth.instance.currentUser?.uid ?? "";
+      if (uid.isEmpty) return false;
 
-      if (uid.isNotEmpty) {
-        // الاعتماد بالكامل على حقل الوزن المستهدف من الصفحة الأولى
-        double? finalTargetWeight = double.tryParse(
-          _targetWeightController.text,
-        );
+      // ── الأول بنحفظ في Vercel ──
+      final ageVal = int.tryParse(_ageController.text) ?? 20;
+      final heightVal = double.tryParse(_heightController.text)?.toInt() ?? 180;
+      final weightVal = double.tryParse(_weightController.text)?.toInt() ?? 85;
+      final targetWeightVal =
+          double.tryParse(_targetWeightController.text)?.toInt() ?? 100;
 
-        await FirebaseFirestore.instance.collection('users').doc(uid).set({
-          'name': widget.userName,
-          'email': widget.userEmail,
-          'age': int.tryParse(_ageController.text),
-          'height': double.tryParse(_heightController.text),
-          'weight': double.tryParse(_weightController.text),
-          'targetWeight': finalTargetWeight,
-          'gender': _selectedGender,
-          'activityLevel': _selectedActivity,
-          'fitnessGoal': _selectedGoal,
-          'experienceLevel': _selectedExp,
-          'equipment': _selectedEquipment,
-          'setupComplete': true,
-          'lastUpdated': FieldValue.serverTimestamp(),
-        });
+      final genderVal = _selectedGender?.toUpperCase() ?? 'MALE';
+      final activeLevelVal =
+          _selectedActivity?.toUpperCase().replaceAll(' ', '_') ?? 'LIGHT';
+      final fitnessGoalVal =
+          _selectedGoal?.toUpperCase().replaceAll(' ', '_') ?? 'LOSE_WEIGHT';
+      final experienceLevelVal =
+          _selectedExp?.toUpperCase().replaceAll(' ', '_') ?? 'BEGINNER';
+      final equipmentVal =
+          _selectedEquipment?.toUpperCase().replaceAll(' ', '_') ?? 'AT_HOME';
+
+      final profileRepo = ProfileRepository();
+      final userProfile = await profileRepo.addProfile(
+        age: ageVal,
+        gender: genderVal,
+        height: heightVal,
+        currentWeight: weightVal,
+        targetWeight: targetWeightVal,
+        activeLevel: activeLevelVal,
+        fitnessGoal: fitnessGoalVal,
+        experienceLevel: experienceLevelVal,
+        equipment: equipmentVal,
+      );
+
+      if (userProfile == null) {
+        throw Exception("Failed to add profile to Vercel backend.");
       }
+
+      // ── بعد نجاح الـ Vercel، بنحفظ في Firestore ──
+      double? finalTargetWeight = double.tryParse(
+        _targetWeightController.text,
+      );
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'name': widget.userName,
+        'email': widget.userEmail,
+        'age': int.tryParse(_ageController.text),
+        'height': double.tryParse(_heightController.text),
+        'weight': double.tryParse(_weightController.text),
+        'targetWeight': finalTargetWeight,
+        'gender': _selectedGender,
+        'activityLevel': _selectedActivity,
+        'fitnessGoal': _selectedGoal,
+        'experienceLevel': _selectedExp,
+        'equipment': _selectedEquipment,
+        'setupComplete': true,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      });
+
+      return true;
     } catch (e) {
       if (mounted) {
         _showValidationSnackBar("Error saving data: $e");
       }
+      return false;
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -172,14 +209,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
       } else {
         // الخطوة الأخيرة: الحفظ والانتقال للداشبورد
-        await _saveToFirestore();
-        if (!mounted) return;
+        final success = await _saveToFirestore();
+        if (!success || !mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => DashboardScreen(
               userName: widget.userName,
               userEmail: widget.userEmail,
+              age: _ageController.text,
+              height: _heightController.text,
+              weight: _weightController.text,
+              targetWeight: _targetWeightController.text,
+              gender: _selectedGender,
+              activityLevel: _selectedActivity,
+              fitnessGoal: _selectedGoal,
+              experienceLevel: _selectedExp,
+              equipment: _selectedEquipment,
             ),
           ),
         );

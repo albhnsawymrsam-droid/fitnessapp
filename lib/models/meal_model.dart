@@ -9,6 +9,7 @@ class Meal {
   final double protein;
   final double carbs;
   final double fats;
+  final String ingredients;
 
   Meal({
     required this.mealId,
@@ -19,6 +20,7 @@ class Meal {
     required this.protein,
     required this.carbs,
     this.fats = 0.0,
+    this.ingredients = '',
   });
 
   bool get isDone => status == 'DONE' || status == 'COMPLETED';
@@ -34,6 +36,7 @@ class Meal {
       protein: (json['protein'] as num?)?.toDouble() ?? 0.0,
       carbs: (json['carbs'] as num?)?.toDouble() ?? 0.0,
       fats: (json['fats'] as num?)?.toDouble() ?? 0.0,
+      ingredients: json['ingredients'] ?? '',
     );
   }
 }
