@@ -131,6 +131,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return targetCalories;
   }
 
+  String get activityLevelName {
+    final act = currentActivityLevel.toLowerCase().replaceAll('_', ' ').trim();
+    if (act.contains('sedentary')) return 'SEDENTARY';
+    if (act.contains('light')) return 'LIGHT';
+    if (act.contains('very active') || act.contains('very_active'))
+      return 'VERY ACTIVE';
+    if (act.contains('active')) return 'ACTIVE';
+    return 'MODERATE';
+  }
+
   // ==========================================
   // Init
   // ==========================================
@@ -172,15 +182,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             (5 * currentAge) -
             161;
 
-    String actLevel = currentActivityLevel.toLowerCase();
-    if (actLevel.contains('sedentary'))
+    String actLevel =
+        currentActivityLevel.toLowerCase().replaceAll('_', ' ').trim();
+    if (actLevel.contains('sedentary')) {
       activityMultiplier = 1.2;
-    else if (actLevel.contains('light'))
+    } else if (actLevel.contains('light')) {
       activityMultiplier = 1.375;
-    else if (actLevel.contains('very') || actLevel.contains('high'))
+    } else if (actLevel.contains('very active') ||
+        actLevel.contains('very_active')) {
+      activityMultiplier = 1.9;
+    } else if (actLevel.contains('active')) {
       activityMultiplier = 1.725;
-    else
+    } else {
       activityMultiplier = 1.55;
+    }
 
     double tdee = calculatedBMR * activityMultiplier;
     String goal = currentFitnessGoal.toLowerCase();
@@ -257,13 +272,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Populate workouts for selected day
           if (workoutsResponse != null &&
               workoutsResponse.workouts.isNotEmpty) {
-            todayWorkoutsData = workoutsResponse.workouts.firstWhere(
-              (workoutDay) => workoutDay.day == currentWorkoutDaySlider.toInt(),
-              orElse: () => workoutsResponse.workouts.first,
-            );
-            completedExercisesCount = todayWorkoutsData!.exercises
-                .where((e) => e.status == 'DONE')
-                .length;
+            final matched = workoutsResponse.workouts.where((workoutDay) =>
+                workoutDay.day == currentWorkoutDaySlider.toInt());
+            todayWorkoutsData = matched.isNotEmpty ? matched.first : null;
+            completedExercisesCount = todayWorkoutsData != null
+                ? todayWorkoutsData!.exercises
+                    .where((e) => e.status == 'DONE')
+                    .length
+                : 0;
           } else {
             todayWorkoutsData = null;
             completedExercisesCount = 0;
@@ -752,6 +768,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _confirmCancelPlan() {
+    final bool hasActivePlan = _cachedMealsResponse != null &&
+        _planCreatedAt != null &&
+        _cachedMealsResponse!.status.toUpperCase() == 'ACTIVE';
+
+    if (!hasActivePlan) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('There is no active plan to cancel.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -817,13 +847,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final day = val.toInt();
       if (_cachedWorkoutsResponse != null &&
           _cachedWorkoutsResponse!.workouts.isNotEmpty) {
-        todayWorkoutsData = _cachedWorkoutsResponse!.workouts.firstWhere(
-          (workoutDay) => workoutDay.day == day,
-          orElse: () => _cachedWorkoutsResponse!.workouts.first,
-        );
-        completedExercisesCount = todayWorkoutsData!.exercises
-            .where((e) => e.status == 'DONE')
-            .length;
+        final matched = _cachedWorkoutsResponse!.workouts
+            .where((workoutDay) => workoutDay.day == day);
+        todayWorkoutsData = matched.isNotEmpty ? matched.first : null;
+        completedExercisesCount = todayWorkoutsData != null
+            ? todayWorkoutsData!.exercises
+                .where((e) => e.status == 'DONE')
+                .length
+            : 0;
       }
     });
   }
@@ -1145,6 +1176,177 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 13))),
         ],
       ),
+    );
+  }
+
+  Widget _buildRestDayCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: accentOrange.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.self_improvement_rounded,
+              color: accentOrange,
+              size: 40,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Today is a break from exercise",
+            //"اليوم راحة من التمرين",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "No workouts scheduled for today. Rest, recover, and recharge! 💤",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecoveryTipsWidget() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.spa_rounded, color: neonGreen, size: 24),
+              const SizedBox(width: 8),
+              const Text(
+                "Rest & Recovery Guide",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildRecoveryTipItem(
+            icon: Icons.water_drop_rounded,
+            iconColor: accentBlue,
+            title: "Optimize Hydration",
+            description:
+                "Drink water consistently to assist muscle recovery and cell repair.",
+          ),
+          const Divider(height: 24, thickness: 0.5),
+          _buildRecoveryTipItem(
+            icon: Icons.directions_walk_rounded,
+            iconColor: neonGreen,
+            title: "Active Rest",
+            description:
+                "A gentle walk, light yoga, or stretching keeps your joints flexible.",
+          ),
+          const Divider(height: 24, thickness: 0.5),
+          _buildRecoveryTipItem(
+            icon: Icons.restaurant_rounded,
+            iconColor: accentOrange,
+            title: "Nutritional Support",
+            description:
+                "Consume proteins to rebuild muscle fibers and carbs to replenish energy.",
+          ),
+          const Divider(height: 24, thickness: 0.5),
+          _buildRecoveryTipItem(
+            icon: Icons.bedtime_rounded,
+            iconColor: Colors.deepPurpleAccent,
+            title: "Prioritize Sleep",
+            description:
+                "Aim for 7-9 hours. Deep sleep is vital for growth hormone release.",
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecoveryTipItem({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String description,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: iconColor, size: 18),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1618,282 +1820,270 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("WORKOUT PLAN",
-              style: TextStyle(
-                  color: Colors.black87,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2)),
-          const SizedBox(height: 5),
-          Container(width: 120, height: 3, color: neonGreen),
-          const SizedBox(height: 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text("WORKOUT PLAN",
+            style: TextStyle(
+                color: Colors.black87,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2)),
+        const SizedBox(height: 5),
+        Container(width: 120, height: 3, color: neonGreen),
+        const SizedBox(height: 20),
 
-          // Day selector bar
-          Container(
-            padding: const EdgeInsets.all(15),
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4))
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Workout Plan Overview",
-                    style:
-                        TextStyle(color: Colors.grey.shade700, fontSize: 14)),
-                const SizedBox(height: 15),
-                SizedBox(
-                  height: 120,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount:
-                        _cachedWorkoutsResponse != null ? _currentPlanDays : 7,
-                    itemBuilder: (context, index) {
-                      double barHeight = 40 + (index * 13 % 60).toDouble();
-                      bool isSelected =
-                          (index + 1) == currentWorkoutDaySlider.toInt();
-                      return GestureDetector(
-                        onTap: () =>
-                            _onWorkoutDayChanged((index + 1).toDouble()),
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                width: isSelected ? 12 : 8,
-                                height: isSelected ? barHeight + 10 : barHeight,
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? accentOrange
-                                      : accentOrange.withValues(alpha: 0.25),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                "D${index + 1}",
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? accentOrange
-                                      : Colors.grey.shade500,
-                                  fontSize: isSelected ? 10 : 8,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          Row(
-            children: [
-              Text("Day ${currentWorkoutDaySlider.toInt()}",
-                  style: TextStyle(
-                      color: accentOrange, fontWeight: FontWeight.bold)),
-              Expanded(
-                child: Slider(
-                  value: currentWorkoutDaySlider,
-                  min: 1,
-                  max: (_cachedWorkoutsResponse != null ? _currentPlanDays : 7)
-                      .toDouble(),
-                  activeColor: accentOrange,
-                  inactiveColor: Colors.grey.shade300,
-                  onChanged: _onWorkoutDayChanged,
-                ),
-              ),
+        // Day selector bar
+        Container(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4))
             ],
           ),
-          const SizedBox(height: 10),
-
-          // Exercises list from API
-          if (isLoadingWorkouts)
-            const Center(
-                child: Padding(
-                    padding: EdgeInsets.all(30),
-                    child: CircularProgressIndicator(color: Colors.green)))
-          else if (isLoadingWorkoutsByDay)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(color: accentOrange),
-                    const SizedBox(height: 12),
-                    Text(
-                        "Loading day ${currentWorkoutDaySlider.toInt()} workouts...",
-                        style: TextStyle(
-                            color: Colors.grey.shade500, fontSize: 13)),
-                  ],
-                ),
-              ),
-            )
-          else if (todayWorkoutsData == null ||
-              todayWorkoutsData!.exercises.isEmpty)
-            _buildEmptyCard(
-                "No workouts found for day ${currentWorkoutDaySlider.toInt()}. Generate a plan first!",
-                Icons.fitness_center)
-          else ...[
-            if (todayWorkoutsData!.title.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(todayWorkoutsData!.title,
-                    style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-              ),
-            ...List.generate(
-              todayWorkoutsData!.exercises.length,
-              (index) {
-                var ex = todayWorkoutsData!.exercises[index];
-                bool isDone = ex.status == 'DONE';
-                final int selectedWorkoutDay = currentWorkoutDaySlider.toInt();
-                final int currentActiveDay = _activeDay;
-                final bool isCurrentActiveWorkoutDay =
-                    selectedWorkoutDay == currentActiveDay;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: cardColor,
-                    borderRadius: BorderRadius.circular(20),
-                    border: isDone
-                        ? Border.all(
-                            color: neonGreen.withValues(alpha: 0.5), width: 1.5)
-                        : null,
-                    boxShadow: [
-                      BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3))
-                    ],
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "${(index + 1).toString().padLeft(2, '0')}",
-                        style: TextStyle(
-                          color: isDone
-                              ? Colors.grey
-                              : neonGreen.withValues(alpha: 0.8),
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                      const SizedBox(width: 15),
-                      Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Workout Plan Overview",
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 14)),
+              const SizedBox(height: 15),
+              SizedBox(
+                height: 120,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount:
+                      _cachedWorkoutsResponse != null ? _currentPlanDays : 7,
+                  itemBuilder: (context, index) {
+                    double barHeight = 40 + (index * 13 % 60).toDouble();
+                    bool isSelected =
+                        (index + 1) == currentWorkoutDaySlider.toInt();
+                    return GestureDetector(
+                      onTap: () => _onWorkoutDayChanged((index + 1).toDouble()),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            Text(
-                              ex.exerciseName,
-                              style: TextStyle(
-                                color: isDone ? Colors.grey : Colors.black87,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                decoration: isDone
-                                    ? TextDecoration.lineThrough
-                                    : TextDecoration.none,
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              width: isSelected ? 12 : 8,
+                              height: isSelected ? barHeight + 10 : barHeight,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? accentOrange
+                                    : accentOrange.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(4),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(Icons.fitness_center,
-                                    color: isDone ? Colors.grey : Colors.orange,
-                                    size: 15),
-                                const SizedBox(width: 6),
-                                Text(
-                                  "${ex.sets} sets x ${ex.reps} reps",
-                                  style: TextStyle(
-                                    color: isDone
-                                        ? Colors.grey
-                                        : Colors.grey.shade700,
-                                    fontSize: 14,
-                                    decoration: isDone
-                                        ? TextDecoration.lineThrough
-                                        : TextDecoration.none,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                _buildWorkoutTag(
-                                    "Sets ${ex.sets}",
-                                    isDone
-                                        ? Colors.grey
-                                        : Colors.green.shade700),
-                                _buildWorkoutTag(
-                                    "Reps ${ex.reps}",
-                                    isDone
-                                        ? Colors.grey
-                                        : Colors.blue.shade700),
-                                if (ex.intensity != null)
-                                  _buildWorkoutTag(
-                                      "Intensity ${ex.intensity}",
-                                      isDone
-                                          ? Colors.grey
-                                          : Colors.red.shade700),
-                                if (!isCurrentActiveWorkoutDay)
-                                  _buildWorkoutTag(
-                                      selectedWorkoutDay < currentActiveDay
-                                          ? "Past Day"
-                                          : "Locked",
-                                      Colors.grey.shade700),
-                              ],
+                            const SizedBox(height: 4),
+                            Text(
+                              "D${index + 1}",
+                              style: TextStyle(
+                                color: isSelected
+                                    ? accentOrange
+                                    : Colors.grey.shade500,
+                                fontSize: isSelected ? 10 : 8,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      Align(
-                        alignment: Alignment.center,
-                        child: Transform.scale(
-                          scale: 1.2,
-                          child: Checkbox(
-                            value: isDone,
-                            activeColor: neonGreen,
-                            checkColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(6)),
-                            side: BorderSide(
-                                color: Colors.grey.shade400, width: 1.5),
-                            onChanged: isCurrentActiveWorkoutDay
-                                ? (_) => _toggleExercise(index)
-                                : null,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        Row(
+          children: [
+            Text("Day ${currentWorkoutDaySlider.toInt()}",
+                style: TextStyle(
+                    color: accentOrange, fontWeight: FontWeight.bold)),
+            Expanded(
+              child: Slider(
+                value: currentWorkoutDaySlider,
+                min: 1,
+                max: (_cachedWorkoutsResponse != null ? _currentPlanDays : 7)
+                    .toDouble(),
+                activeColor: accentOrange,
+                inactiveColor: Colors.grey.shade300,
+                onChanged: _onWorkoutDayChanged,
+              ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+
+        // Exercises list from API
+        if (isLoadingWorkouts)
+          const Center(
+              child: Padding(
+                  padding: EdgeInsets.all(30),
+                  child: CircularProgressIndicator(color: Colors.green)))
+        else if (isLoadingWorkoutsByDay)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  CircularProgressIndicator(color: accentOrange),
+                  const SizedBox(height: 12),
+                  Text(
+                      "Loading day ${currentWorkoutDaySlider.toInt()} workouts...",
+                      style:
+                          TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+                ],
+              ),
+            ),
+          )
+        else if (_cachedWorkoutsResponse == null)
+          _buildEmptyCard(
+              "No workouts found. Generate a plan first!", Icons.fitness_center)
+        else if (todayWorkoutsData == null ||
+            todayWorkoutsData!.exercises.isEmpty) ...[
+          _buildRestDayCard(),
+          const SizedBox(height: 20),
+          _buildRecoveryTipsWidget(),
+        ] else ...[
+          if (todayWorkoutsData!.title.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(todayWorkoutsData!.title,
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+            ),
+          ...List.generate(
+            todayWorkoutsData!.exercises.length,
+            (index) {
+              var ex = todayWorkoutsData!.exercises[index];
+              bool isDone = ex.status == 'DONE';
+              final int selectedWorkoutDay = currentWorkoutDaySlider.toInt();
+              final int currentActiveDay = _activeDay;
+              final bool isCurrentActiveWorkoutDay =
+                  selectedWorkoutDay == currentActiveDay;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(20),
+                  border: isDone
+                      ? Border.all(
+                          color: neonGreen.withValues(alpha: 0.5), width: 1.5)
+                      : null,
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3))
+                  ],
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "${(index + 1).toString().padLeft(2, '0')}",
+                      style: TextStyle(
+                        color: isDone
+                            ? Colors.grey
+                            : neonGreen.withValues(alpha: 0.8),
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(width: 15),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            ex.exerciseName,
+                            style: TextStyle(
+                              color: isDone ? Colors.grey : Colors.black87,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              decoration: isDone
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(Icons.fitness_center,
+                                  color: isDone ? Colors.grey : Colors.orange,
+                                  size: 15),
+                              const SizedBox(width: 6),
+                              Text(
+                                "${ex.sets} sets x ${ex.reps} reps",
+                                style: TextStyle(
+                                  color: isDone
+                                      ? Colors.grey
+                                      : Colors.grey.shade700,
+                                  fontSize: 14,
+                                  decoration: isDone
+                                      ? TextDecoration.lineThrough
+                                      : TextDecoration.none,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _buildWorkoutTag("Sets ${ex.sets}",
+                                  isDone ? Colors.grey : Colors.green.shade700),
+                              _buildWorkoutTag("Reps ${ex.reps}",
+                                  isDone ? Colors.grey : Colors.blue.shade700),
+                              if (ex.intensity != null)
+                                _buildWorkoutTag("Intensity ${ex.intensity}",
+                                    isDone ? Colors.grey : Colors.red.shade700),
+                              if (!isCurrentActiveWorkoutDay)
+                                _buildWorkoutTag(
+                                    selectedWorkoutDay < currentActiveDay
+                                        ? "Past Day"
+                                        : "Locked",
+                                    Colors.grey.shade700),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.center,
+                      child: Transform.scale(
+                        scale: 1.2,
+                        child: Checkbox(
+                          value: isDone,
+                          activeColor: neonGreen,
+                          checkColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6)),
+                          side: BorderSide(
+                              color: Colors.grey.shade400, width: 1.5),
+                          onChanged: isCurrentActiveWorkoutDay
+                              ? (_) => _toggleExercise(index)
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 20),
 
           // Circular progress summary للـ workout
@@ -1959,7 +2149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
         ],
-      ),
+      ]),
     );
   }
 
@@ -2035,9 +2225,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       : "LOSE WEIGHT",
                   "kg to goal"),
               _buildGridStatCard(
-                  _currentPlanDays.toString(), "DURATION", "days"),
+                  (_cachedMealsResponse != null &&
+                          _planCreatedAt != null &&
+                          _cachedMealsResponse!.status.toUpperCase() ==
+                              'ACTIVE')
+                      ? _currentPlanDays.toString()
+                      : "-",
+                  "DURATION",
+                  "days"),
               _buildGridStatCard(
-                  activityMultiplier.toString(), "ACTIVITY", "multiplier"),
+                  activityMultiplier.toString(), "ACTIVITY", activityLevelName),
             ],
           ),
           const SizedBox(height: 25),
@@ -2648,6 +2845,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _profileId = profile.profileId;
           currentWeight = profile.currentWeight.toDouble();
+          startedWeight = profile.initialWeight.toDouble();
           targetWeightVal = profile.targetWeight.toDouble();
           currentFitnessGoal = profile.fitnessGoal;
           currentAge = profile.age;
@@ -2676,6 +2874,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _profileId = profile.profileId;
           currentWeight = profile.currentWeight.toDouble();
+          startedWeight = profile.initialWeight.toDouble();
           targetWeightVal = profile.targetWeight.toDouble();
           currentFitnessGoal = profile.fitnessGoal;
           currentAge = profile.age;

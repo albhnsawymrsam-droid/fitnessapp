@@ -43,6 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final Color cardBg = const Color(0xFFF9F9F9);
   bool _isEditing = false;
   bool _isLoading = false;
+  int? _profileId;
 
   // استدعاء الـ Repository للربط النظيف
   final ProfileRepository _profileRepository = ProfileRepository();
@@ -110,6 +111,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (userProfile != null && mounted) {
         setState(() {
+          _profileId = userProfile.profileId;
           _nameController.text = userProfile.fullName;
           _ageController.text = userProfile.age.toString();
           _heightController.text = userProfile.height.toString();
@@ -233,7 +235,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       // استخدمنا tryParse للتحويل الآمن عشان الأبلكيشن ميهنجش
       final updatedProfile = await _profileRepository.updateProfile(
-        profileId: widget.userProfile?.profileId ?? 0,
+        profileId: _profileId ?? widget.userProfile?.profileId ?? 0,
         age: int.tryParse(_ageController.text.trim()) ?? 0,
         height: int.tryParse(_heightController.text.trim()) ?? 0,
         currentWeight: int.tryParse(_weightController.text.trim()) ?? 0,
@@ -255,6 +257,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             backgroundColor: Colors.green));
         if (mounted) {
           setState(() {
+            _profileId = updatedProfile.profileId;
             _nameController.text = updatedProfile.fullName;
             _ageController.text = updatedProfile.age.toString();
             _heightController.text = updatedProfile.height.toString();

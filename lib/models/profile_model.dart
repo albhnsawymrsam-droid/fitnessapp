@@ -3,6 +3,7 @@ class UserProfile {
   final int userId;
   final String fullName;
   final String email;
+  final String role;
   final int age;
   final String gender;
   final int height;
@@ -23,6 +24,7 @@ class UserProfile {
     required this.userId,
     required this.fullName,
     required this.email,
+    required this.role,
     required this.age,
     required this.gender,
     required this.height,
@@ -55,6 +57,7 @@ class UserProfile {
       userId: profile['user_id'] ?? 0,
       fullName: account['fullName']?.toString() ?? 'User',
       email: account['email']?.toString() ?? '',
+      role: account['role']?.toString() ?? 'USER',
       age: profile['age'] ?? 20,
       gender: profile['gender']?.toString() ?? 'MALE',
       height: profile['height'] ?? 170,

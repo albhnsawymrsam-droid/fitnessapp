@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'login_screen.dart'; // تأكد أن اسم الملف صح عندك
 
 import '../repositories/auth_repository.dart';
@@ -48,7 +49,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error sending code: $e'),
+          content: Text(_getErrorMessage(e)),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -150,6 +151,7 @@ class VerifyCodeScreen extends StatefulWidget {
 class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
   final Color primaryGreen = const Color(0xFF2E8B57);
   final TextEditingController _codeController = TextEditingController();
+  final AuthRepository _authRepository = AuthRepository();
   bool _isLoading = false;
 
   @override
@@ -158,7 +160,7 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
     super.dispose();
   }
 
-  void _goToReset() {
+  Future<void> _goToReset() async {
     final code = _codeController.text.trim();
     if (code.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -169,15 +171,43 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
       );
       return;
     }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ResetPasswordScreen(
-          email: widget.email,
-          code: code,
+
+    setState(() => _isLoading = true);
+    try {
+      final isValid = await _authRepository.verifyCode(
+        email: widget.email,
+        code: code,
+      );
+      if (!mounted) return;
+      if (isValid) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ResetPasswordScreen(
+              email: widget.email,
+              code: code,
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Invalid or expired verification code. Please try again.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_getErrorMessage(e)),
+          backgroundColor: Colors.redAccent,
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -199,9 +229,9 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
               style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
-            const Text(
-              'Enter the code sent to your email',
-              style: TextStyle(color: Colors.grey),
+            Text(
+              'Enter the code sent to ${widget.email}',
+              style: const TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 40),
             TextField(
@@ -227,10 +257,19 @@ class _VerifyCodeScreenState extends State<VerifyCodeScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text(
-                'Verify',
-                style: TextStyle(color: Colors.white, fontSize: 18),
-              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    )
+                  : const Text(
+                      'Verify',
+                      style: TextStyle(color: Colors.white, fontSize: 18),
+                    ),
             ),
           ],
         ),
@@ -303,7 +342,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error resetting password: $e'),
+          content: Text(_getErrorMessage(e)),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -438,4 +477,32 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       ],
     );
   }
+}
+
+String _getErrorMessage(dynamic e) {
+  if (e is DioException) {
+    if (e.response?.data != null && e.response?.data is Map) {
+      final data = e.response!.data as Map;
+      final msg = data['message'] ??
+          data['msg'] ??
+          data['error'] ??
+          data['messageError'];
+      if (msg != null) {
+        return msg.toString();
+      }
+    }
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return 'Connection timed out. Please check your internet connection.';
+    }
+    if (e.type == DioExceptionType.connectionError) {
+      return 'No internet connection or server is unreachable.';
+    }
+    if (e.response?.statusCode == 429) {
+      return 'Too many requests. Please try again later.';
+    }
+    return e.message ?? 'An unexpected network error occurred.';
+  }
+  return e.toString();
 }

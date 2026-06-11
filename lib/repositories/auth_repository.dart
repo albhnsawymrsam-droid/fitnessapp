@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
 import '../services/api_service.dart';
 import '../utils/app_constants.dart';
@@ -47,6 +48,7 @@ class AuthRepository {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_name', user.fullname);
       await prefs.setString('user_email', user.email);
+      await prefs.setString('user_role', user.role);
       await prefs.setBool('has_profile', hasProfile);
 
       return {
@@ -88,6 +90,7 @@ class AuthRepository {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_name', user.fullname);
       await prefs.setString('user_email', user.email);
+      await prefs.setString('user_role', user.role);
       await prefs.setBool('has_profile', false);
 
       return user;
@@ -97,18 +100,11 @@ class AuthRepository {
         requestOptions: response.requestOptions, response: response);
   }
 
-  // Future<Map<String, dynamic>> logout() async {
-  //   final response = await _api.post('logout');
-
-  //   if (response.statusCode == 200) {
-  //     _api.setAuthToken(null);
-  //     return response.data;
-  //   }
-
-  //   throw DioException(
-  //       requestOptions: response.requestOptions, response: response);
-  // }
   Future<Map<String, dynamic>> logout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+
     final response = await _api.post('${AppConstants.vercelUrl}logout');
 
     if (response.statusCode == 200 ||
@@ -121,6 +117,7 @@ class AuthRepository {
       await prefs.remove('auth_token');
       await prefs.remove('user_name');
       await prefs.remove('user_email');
+      await prefs.remove('user_role');
       await prefs.remove('has_profile');
 
       return response.data;
@@ -133,7 +130,8 @@ class AuthRepository {
   Future<Map<String, dynamic>> forgetPassword({
     required String email,
   }) async {
-    final response = await _api.post('forget-password', data: {
+    final response =
+        await _api.post('${AppConstants.vercelUrl}forget-password', data: {
       'email': email,
     });
 
@@ -151,7 +149,8 @@ class AuthRepository {
     required String newPassword,
     required String confirmPassword,
   }) async {
-    final response = await _api.post('reset-password', data: {
+    final response =
+        await _api.post('${AppConstants.vercelUrl}reset-password', data: {
       'email': email,
       'code': code,
       'newPassword': newPassword,
@@ -164,5 +163,39 @@ class AuthRepository {
 
     throw DioException(
         requestOptions: response.requestOptions, response: response);
+  }
+
+  Future<bool> verifyCode({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final response =
+          await _api.post('${AppConstants.vercelUrl}reset-password', data: {
+        'email': email,
+        'code': code,
+        'newPassword': '1',
+        'confirmPassword': '1',
+      });
+      // If it succeeds (returns 200), the code is correct.
+      return true;
+    } catch (e) {
+      if (e is DioException) {
+        final data = e.response?.data;
+        if (data is Map) {
+          final message =
+              (data['message'] ?? data['msg'] ?? data['error'] ?? '')
+                  .toString()
+                  .toLowerCase();
+          if (message.contains('invalid') ||
+              message.contains('expired') ||
+              message.contains('code')) {
+            return false;
+          }
+        }
+      }
+      // If it fails due to password validation, the code is correct.
+      return true;
+    }
   }
 }

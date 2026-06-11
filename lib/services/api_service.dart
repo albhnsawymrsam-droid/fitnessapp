@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_constants.dart';
 
 class ApiService {
@@ -33,6 +35,30 @@ class ApiService {
             _authToken = null;
             _dio.options.headers.remove('Authorization');
             _dio.options.headers.remove('Authentication');
+
+            // إذا كان الطلب هو تسجيل الدخول أو التسجيل، لا نقوم بالتوجيه التلقائي، بل نترك الشاشات تتعامل مع خطأ التحقق وتظهر الرسالة للمستخدم في نفس الصفحة
+            final path = error.requestOptions.path.toLowerCase();
+            final uriString = error.requestOptions.uri.toString().toLowerCase();
+            if (path.contains('login') ||
+                path.contains('register') ||
+                uriString.contains('login') ||
+                uriString.contains('register')) {
+              handler.next(error);
+              return;
+            }
+
+            // مسح بيانات الجلسة والـ Firebase
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('user_name');
+              await prefs.remove('user_email');
+              await prefs.remove('user_role');
+              await prefs.remove('has_profile');
+            } catch (_) {}
+
+            try {
+              await FirebaseAuth.instance.signOut();
+            } catch (_) {}
 
             // ابعت اليوزر لشاشة الـ login
             final context = navigatorKey.currentContext;

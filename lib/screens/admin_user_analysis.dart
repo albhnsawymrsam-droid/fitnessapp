@@ -157,6 +157,41 @@ class _AdminUserAnalysisState extends State<AdminUserAnalysis> {
   @override
   Widget build(BuildContext context) {
     final goalsList = _stats != null ? (_stats!['goals'] as List?) : null;
+    final List<Map<String, dynamic>> processedGoals = [];
+    int lossWeightCount = 0;
+
+    if (goalsList != null) {
+      for (var item in goalsList) {
+        if (item == null) continue;
+        final map = Map<String, dynamic>.from(item);
+        final String goalName =
+            (map['fitness_goal'] ?? '').toString().trim().toLowerCase();
+        final int count = int.tryParse(map['count']?.toString() ?? '0') ?? 0;
+
+        if (goalName == 'maintenance') {
+          // شيلها مش عندنا ف المشروع
+          continue;
+        }
+
+        if (goalName == 'lose_weight' ||
+            goalName == 'lose weight' ||
+            goalName == 'weight_loss' ||
+            goalName == 'weight loss' ||
+            goalName == 'loss_weight' ||
+            goalName == 'loss weight') {
+          lossWeightCount += count;
+        } else {
+          processedGoals.add(map);
+        }
+      }
+
+      if (lossWeightCount > 0) {
+        processedGoals.add({
+          'fitness_goal': 'LOSS_WEIGHT',
+          'count': lossWeightCount,
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -194,9 +229,10 @@ class _AdminUserAnalysisState extends State<AdminUserAnalysis> {
                       Text(
                         'No analysis found',
                         style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500),
+                          color: Colors.grey.shade600,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
@@ -244,7 +280,7 @@ class _AdminUserAnalysisState extends State<AdminUserAnalysis> {
                         ),
                       ),
                       Expanded(
-                        child: goalsList == null || goalsList.isEmpty
+                        child: processedGoals.isEmpty
                             ? Center(
                                 child: Text(
                                   'No goal statistics found',
@@ -253,11 +289,9 @@ class _AdminUserAnalysisState extends State<AdminUserAnalysis> {
                               )
                             : ListView.builder(
                                 physics: const BouncingScrollPhysics(),
-                                itemCount: goalsList.length,
+                                itemCount: processedGoals.length,
                                 itemBuilder: (context, index) {
-                                  return _buildGoalCard(
-                                      Map<String, dynamic>.from(
-                                          goalsList[index]));
+                                  return _buildGoalCard(processedGoals[index]);
                                 },
                               ),
                       ),

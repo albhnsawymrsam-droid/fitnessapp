@@ -15,6 +15,8 @@ class _AdminGetAllUsersState extends State<AdminGetAllUsers> {
   bool _loading = false;
   List<Map<String, dynamic>> _users = [];
   String? _error;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
 
   Future<void> _load() async {
     if (!mounted) return;
@@ -52,6 +54,25 @@ class _AdminGetAllUsersState extends State<AdminGetAllUsers> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _filteredUsers {
+    if (_searchQuery.isEmpty) return _users;
+    return _users.where((user) {
+      final name = (user['fullname'] ?? '').toString().toLowerCase();
+      final email = (user['email'] ?? '').toString().toLowerCase();
+      final id = (user['user_id'] ?? user['id'] ?? '').toString().toLowerCase();
+      final query = _searchQuery.toLowerCase();
+      return name.contains(query) ||
+          email.contains(query) ||
+          id.contains(query);
+    }).toList();
+  }
+
   Widget _buildBadge(String label, Color bg, Color text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -76,6 +97,7 @@ class _AdminGetAllUsersState extends State<AdminGetAllUsers> {
     final String email = user['email'] ?? 'No email';
     final String role = user['role'] ?? 'USER';
     final bool isBanned = user['banned'] == true;
+    final String userId = (user['user_id'] ?? user['id'] ?? '').toString();
 
     // Badge styling based on role
     final Color roleBg = role.toLowerCase() == 'admin'
@@ -138,6 +160,19 @@ class _AdminGetAllUsersState extends State<AdminGetAllUsers> {
                       color: Colors.black87,
                     ),
                   ),
+                  if (userId.isNotEmpty &&
+                      userId != 'null' &&
+                      userId != '0') ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      "ID: $userId",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: primaryGreen,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Text(
                     email,
@@ -183,53 +218,107 @@ class _AdminGetAllUsersState extends State<AdminGetAllUsers> {
         ),
         centerTitle: true,
       ),
-      body: _loading
-          ? Center(child: CircularProgressIndicator(color: primaryGreen))
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.error_outline_rounded,
-                            size: 60, color: Colors.red.shade300),
-                        const SizedBox(height: 16),
-                        Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: Colors.grey.shade700, fontSize: 14),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : _users.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.people_outline_rounded,
-                              size: 60, color: Colors.grey.shade400),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No users found',
-                            style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 16),
+      body: Column(
+        children: [
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) {
+                setState(() {
+                  _searchQuery = val;
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Search users by name, email or ID...',
+                prefixIcon:
+                    const Icon(Icons.search_rounded, color: Colors.grey),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon:
+                            const Icon(Icons.clear_rounded, color: Colors.grey),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _searchQuery = "";
+                          });
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: primaryGreen, width: 1.5),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? Center(child: CircularProgressIndicator(color: primaryGreen))
+                : _error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.error_outline_rounded,
+                                  size: 60, color: Colors.red.shade300),
+                              const SizedBox(height: 16),
+                              Text(
+                                _error!,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: Colors.grey.shade700, fontSize: 14),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                      itemCount: _users.length,
-                      itemBuilder: (context, index) {
-                        return _buildUserCard(_users[index]);
-                      },
-                    ),
+                        ),
+                      )
+                    : _filteredUsers.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.people_outline_rounded,
+                                    size: 60, color: Colors.grey.shade400),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _searchQuery.isNotEmpty
+                                      ? 'No matching users found'
+                                      : 'No users found',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 16),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            itemCount: _filteredUsers.length,
+                            itemBuilder: (context, index) {
+                              return _buildUserCard(_filteredUsers[index]);
+                            },
+                          ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _load,
         backgroundColor: primaryGreen,

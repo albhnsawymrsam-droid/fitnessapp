@@ -61,7 +61,7 @@ class ProfileRepository {
       return null;
     } catch (e) {
       print("Error fetching profile in Repository: $e");
-      return null;
+      rethrow;
     }
   }
 

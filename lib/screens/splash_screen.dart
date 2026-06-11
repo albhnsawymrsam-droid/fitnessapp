@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
 import '../services/api_service.dart';
 import '../repositories/profile_repository.dart';
 import 'dashboard_screen.dart';
@@ -38,6 +39,38 @@ class _SplashScreenState extends State<SplashScreen> {
       try {
         final profile = await ProfileRepository().getProfileData();
         if (profile != null) {
+          // التحقق من أن المستخدم مسؤول (Admin) عبر عدة مصادر للتأكيد
+          bool isAdminUser = false;
+
+          // 1. فحص الكاش المحلي في SharedPreferences
+          final prefs = await SharedPreferences.getInstance();
+          final savedRole = prefs.getString('user_role') ?? '';
+          if (savedRole.toLowerCase() == 'admin') {
+            isAdminUser = true;
+          }
+
+          // 2. فحص الـ role الراجع من الـ API
+          if (profile.role.toLowerCase() == 'admin') {
+            isAdminUser = true;
+          }
+
+          // 3. فحص الـ role المخزن في Firestore
+          if (firebaseUser != null) {
+            try {
+              final doc = await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(firebaseUser.uid)
+                  .get();
+              if (doc.exists && doc.data() != null) {
+                final firestoreRole =
+                    (doc.data()?['role'] ?? '').toString().toLowerCase();
+                if (firestoreRole == 'admin') {
+                  isAdminUser = true;
+                }
+              }
+            } catch (_) {}
+          }
+
           // لديه ملف شخصي كامل -> الذهاب للـ Dashboard مباشرة
           if (!mounted) return;
           Navigator.pushReplacement(
@@ -56,6 +89,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 experienceLevel: profile.experienceLevel,
                 equipment: profile.equipment,
                 durationDays: "",
+                isAdmin: isAdminUser,
               ),
             ),
           );
@@ -83,11 +117,16 @@ class _SplashScreenState extends State<SplashScreen> {
         }
       } catch (e) {
         debugPrint("Splash API login error: $e");
+        // لو الخطأ 401 معناه السيشن انتهت والـ Interceptor مسح التوكن وهيوديه للـ intro
+        if (e is DioException && e.response?.statusCode == 401) {
+          return;
+        }
         // لو حدث خطأ في النت ولكن الـ token موجود واليوزر محفوظ محلياً، ممكن نحاول نستخدم البيانات المحفوظة
         final prefs = await SharedPreferences.getInstance();
         final savedName = prefs.getString('user_name');
         final savedEmail = prefs.getString('user_email');
         final hasProfile = prefs.getBool('has_profile') ?? false;
+        final savedRole = prefs.getString('user_role') ?? 'USER';
 
         if (savedName != null && savedEmail != null && hasProfile) {
           if (!mounted) return;
@@ -107,6 +146,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 experienceLevel: "",
                 equipment: "",
                 durationDays: "",
+                isAdmin: savedRole.toLowerCase() == 'admin',
               ),
             ),
           );
@@ -135,6 +175,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
         // هل هو مخلص الاونبوردنج؟
         bool isSetupComplete = data['setupComplete'] ?? false;
+        final bool isAdminUser =
+            (data['role'] ?? '').toString().toLowerCase() == 'admin';
 
         if (isSetupComplete) {
           if (!mounted) return;
@@ -154,8 +196,8 @@ class _SplashScreenState extends State<SplashScreen> {
                 fitnessGoal: data['fitnessGoal'] ?? "",
                 experienceLevel: data['experienceLevel'] ?? "",
                 equipment: data['equipment'] ?? "",
-                durationDays: data['durationDays']?.toString() ??
-                    "", // تم إضافة تمرير المتغير الجديد هنا بنجاح
+                durationDays: data['durationDays']?.toString() ?? "",
+                isAdmin: isAdminUser,
               ),
             ),
           );
